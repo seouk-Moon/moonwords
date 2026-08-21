@@ -15,8 +15,11 @@ import type {
 } from "./types";
 
 type View = "library" | "study" | "words" | "quiz" | "upload";
-type QuizMode = "meaning" | "cloze" | "comprehension" | "ordering";
+type QuizMode = "meaning" | "cloze" | "comprehension" | "ordering" | "flashcard";
 type OrderingScope = "all" | "difficult" | "selected";
+type ComprehensionScope = "all" | "incorrect";
+type VocabDirection = "english-korean" | "korean-english";
+type VocabFormat = "choice" | "written";
 type ChoiceQuizQuestion = {
   kind: "choice";
   prompt: string;
@@ -24,6 +27,22 @@ type ChoiceQuizQuestion = {
   answer: number;
   explanation: string;
   wordId?: string;
+  sourceQuestionId?: number;
+};
+type WrittenQuizQuestion = {
+  kind: "written";
+  prompt: string;
+  answerText: string;
+  explanation: string;
+  wordId: string;
+};
+type FlashcardQuestion = {
+  kind: "flashcard";
+  front: string;
+  back: string;
+  example: string;
+  translation: string;
+  wordId: string;
 };
 type OrderingQuizQuestion = {
   kind: "ordering";
@@ -34,7 +53,7 @@ type OrderingQuizQuestion = {
   shuffledTokens: Array<{ id: string; text: string }>;
   shortened: boolean;
 };
-type QuizQuestion = ChoiceQuizQuestion | OrderingQuizQuestion;
+type QuizQuestion = ChoiceQuizQuestion | WrittenQuizQuestion | FlashcardQuestion | OrderingQuizQuestion;
 type SelectedWord = {
   word: string;
   sentenceId: number;
@@ -46,7 +65,15 @@ type SelectedWord = {
 };
 
 const uid = () => crypto.randomUUID();
-const shuffle = <T,>(items: T[]) => [...items].sort(() => Math.random() - 0.5);
+const shuffle = <T,>(items: T[]) => {
+  const shuffled = [...items];
+  for (let index = shuffled.length - 1; index > 0; index -= 1) {
+    const swapIndex = Math.floor(Math.random() * (index + 1));
+    [shuffled[index], shuffled[swapIndex]] = [shuffled[swapIndex], shuffled[index]];
+  }
+  if (shuffled.length > 1 && shuffled.every((item, index) => item === items[index])) shuffled.push(shuffled.shift()!);
+  return shuffled;
+};
 const cleanSelection = (value: string) =>
   value.replace(/[“”‘’]/g, "'").replace(/^[^A-Za-z]+|[^A-Za-z]+$/g, "").replace(/\s+/g, " ").trim();
 const lexicalForms = (value: string) => {
@@ -114,52 +141,6 @@ const getFunctionErrorMessage = async (error: unknown) => {
       return fallback;
     }
   }
-};
-
-const splitAudioText = (sentences: string[], maxCharacters = 850) => {
-  const chunks: string[] = [];
-  let current = "";
-  sentences.forEach((sentence) => {
-    if (current && current.length + sentence.length + 1 > maxCharacters) {
-      chunks.push(current);
-      current = "";
-    }
-    current = current ? `${current} ${sentence}` : sentence;
-  });
-  if (current) chunks.push(current);
-  return chunks;
-};
-
-const base64ToBytes = (value: string) => {
-  const binary = window.atob(value);
-  const bytes = new Uint8Array(binary.length);
-  for (let index = 0; index < binary.length; index += 1) bytes[index] = binary.charCodeAt(index);
-  return bytes;
-};
-
-const pcmFromAudioBytes = (bytes: Uint8Array, mimeType: string) => {
-  if (!mimeType.toLowerCase().includes("wav") || bytes.length < 44) return bytes;
-  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
-  let offset = 12;
-  while (offset + 8 <= bytes.length) {
-    const chunkName = String.fromCharCode(bytes[offset], bytes[offset + 1], bytes[offset + 2], bytes[offset + 3]);
-    const chunkSize = view.getUint32(offset + 4, true);
-    if (chunkName === "data") return bytes.slice(offset + 8, Math.min(offset + 8 + chunkSize, bytes.length));
-    offset += 8 + chunkSize + (chunkSize % 2);
-  }
-  return bytes.slice(44);
-};
-
-const createWavBlob = (chunks: Uint8Array[], sampleRate = 24_000, channels = 1) => {
-  const pcmLength = chunks.reduce((total, chunk) => total + chunk.length, 0);
-  const header = new ArrayBuffer(44);
-  const view = new DataView(header);
-  const write = (offset: number, text: string) => [...text].forEach((character, index) => view.setUint8(offset + index, character.charCodeAt(0)));
-  write(0, "RIFF"); view.setUint32(4, 36 + pcmLength, true); write(8, "WAVE"); write(12, "fmt ");
-  view.setUint32(16, 16, true); view.setUint16(20, 1, true); view.setUint16(22, channels, true);
-  view.setUint32(24, sampleRate, true); view.setUint32(28, sampleRate * channels * 2, true);
-  view.setUint16(32, channels * 2, true); view.setUint16(34, 16, true); write(36, "data"); view.setUint32(40, pcmLength, true);
-  return new Blob([header, ...chunks], { type: "audio/wav" });
 };
 
 function AuthScreen() {
@@ -294,9 +275,6 @@ function StudyView({ doc, words, progress, onSaveWord, onDeleteWord, onProgress,
   const [loadingMeaning, setLoadingMeaning] = useState(false);
   const [listeningState, setListeningState] = useState<"idle" | "playing" | "paused">("idle");
   const [speakingSentenceId, setSpeakingSentenceId] = useState<number | null>(null);
-  const [exportingAudio, setExportingAudio] = useState(false);
-  const [audioStatus, setAudioStatus] = useState("");
-  const [audioError, setAudioError] = useState("");
   const articleRef = useRef<HTMLDivElement>(null);
   const meaningCache = useRef(new Map<string, string>());
   const activeLookup = useRef("");
@@ -401,51 +379,6 @@ function StudyView({ doc, words, progress, onSaveWord, onDeleteWord, onProgress,
     window.speechSynthesis.cancel();
   }, [doc.id]);
 
-  const exportFullAudio = async () => {
-    if (!supabase || exportingAudio) return;
-    setExportingAudio(true);
-    setAudioError("");
-    try {
-      const chunks = splitAudioText(sentences.map((sentence) => sentence.english));
-      const pcmChunks: Uint8Array[] = [];
-      let sampleRate = 24_000;
-      let channels = 1;
-      for (let index = 0; index < chunks.length; index += 1) {
-        setAudioStatus(`음원 만드는 중 ${index + 1}/${chunks.length}`);
-        let audioData: { audio: string; mimeType?: string; sampleRate?: number; channels?: number } | null = null;
-        for (let attempt = 0; attempt < 3; attempt += 1) {
-          const response = await supabase.functions.invoke("process-document", { body: { action: "tts", text: chunks[index] } });
-          if (!response.error) {
-            audioData = response.data;
-            break;
-          }
-          const message = await getFunctionErrorMessage(response.error);
-          const transient = /429|503|UNAVAILABLE|RESOURCE_EXHAUSTED|high demand/i.test(message);
-          if (!transient || attempt === 2) throw new Error(message);
-          setAudioStatus(`음성 서버 재시도 중 ${index + 1}/${chunks.length}`);
-          await new Promise((resolve) => window.setTimeout(resolve, (2 ** attempt) * 1_500));
-        }
-        if (!audioData?.audio) throw new Error("음성 데이터가 비어 있습니다.");
-        sampleRate = Number(audioData.sampleRate || sampleRate);
-        channels = Number(audioData.channels || channels);
-        pcmChunks.push(pcmFromAudioBytes(base64ToBytes(audioData.audio), audioData.mimeType || "audio/l16"));
-      }
-      const blob = createWavBlob(pcmChunks, sampleRate, channels);
-      const url = URL.createObjectURL(blob);
-      const link = document.createElement("a");
-      link.href = url;
-      link.download = `${doc.title.replace(/[^A-Za-z0-9가-힣 _-]/g, "").trim() || "MoonWords"}_full_audio.wav`;
-      link.click();
-      window.setTimeout(() => URL.revokeObjectURL(url), 2_000);
-      setAudioStatus("WAV 저장 완료");
-    } catch (caught) {
-      setAudioError(caught instanceof Error ? caught.message : "음원을 만들지 못했습니다.");
-      setAudioStatus("");
-    } finally {
-      setExportingAudio(false);
-    }
-  };
-
   const toggle = (key: "understood_sentence_ids" | "bookmarked_sentence_ids", id: number) => {
     const current = progress[key];
     onProgress({ ...progress, [key]: current.includes(id) ? current.filter((value) => value !== id) : [...current, id], last_studied_at: new Date().toISOString() });
@@ -478,8 +411,7 @@ function StudyView({ doc, words, progress, onSaveWord, onDeleteWord, onProgress,
       <div className="study-layout">
         <article className="article-card" ref={articleRef} onMouseUp={selectWord}>
           <div className="article-tip"><b>모르는 단어를 드래그해 보세요.</b><span>저장된 단어는 하이라이트를 눌러 뜻 확인·삭제가 가능해요.</span></div>
-          <div className="audio-toolbar"><div><button className="audio-play" onClick={listeningState === "idle" ? startFullListening : toggleListeningPause}>{listeningState === "idle" ? "▶ 전체 듣기" : listeningState === "paused" ? "▶ 계속 듣기" : "Ⅱ 일시정지"}</button>{listeningState !== "idle" && <button onClick={stopFullListening}>■ 정지</button>}<span>{speakingSentenceId ? `${sentences.findIndex((sentence) => sentence.id === speakingSentenceId) + 1}/${sentences.length} 문장` : "영어 본문 연속 재생"}</span></div><button className="audio-export" disabled={!supabase || exportingAudio} onClick={exportFullAudio}>{exportingAudio ? audioStatus : "↓ 전체 음원 WAV"}</button></div>
-          {audioError && <p className="audio-error">{audioError}</p>}{!audioError && audioStatus && !exportingAudio && <p className="audio-complete">{audioStatus}</p>}
+          <div className="audio-toolbar"><div><button className="audio-play" onClick={listeningState === "idle" ? startFullListening : toggleListeningPause}>{listeningState === "idle" ? "▶ 전체 듣기" : listeningState === "paused" ? "▶ 계속 듣기" : "Ⅱ 일시정지"}</button>{listeningState !== "idle" && <button onClick={stopFullListening}>■ 정지</button>}<span>{speakingSentenceId ? `${sentences.findIndex((sentence) => sentence.id === speakingSentenceId) + 1}/${sentences.length} 문장` : "영어 본문 연속 재생"}</span></div></div>
           {doc.analysis.sections.map((section) => <section className="paragraph-block" key={section.id}>
             <header><span>{String(section.id).padStart(2, "0")}</span><div><b>{section.label}</b><small>{section.role}</small></div></header>
             {sentences.filter((sentence) => sentence.paragraph === section.id).map((sentence) => {
@@ -534,12 +466,40 @@ function Wordbook({ words, onUpdate, onDelete, onStudy }: { words: VocabularyIte
   </main>;
 }
 
-function Quiz({ doc, words, progress, onResult }: { doc: StudyDocument; words: VocabularyItem[]; progress: StudyProgress; onResult: (id: string | undefined, correct: boolean) => void }) {
+const missedComprehensionKey = "__missed_comprehension_question_ids";
+const readMissedComprehensionIds = (progress: StudyProgress, questionCount: number) => {
+  try {
+    const parsed = JSON.parse(progress.sentence_notes?.[missedComprehensionKey] ?? "[]");
+    return Array.isArray(parsed) ? parsed.filter((id): id is number => Number.isInteger(id) && id >= 0 && id < questionCount) : [];
+  } catch {
+    return [];
+  }
+};
+
+function Quiz({ doc, words, progress, onProgress, onResult }: { doc: StudyDocument; words: VocabularyItem[]; progress: StudyProgress; onProgress: (next: StudyProgress) => void; onResult: (id: string | undefined, correct: boolean) => void }) {
   const [mode, setMode] = useState<QuizMode>("comprehension");
   const [index, setIndex] = useState(0);
   const [picked, setPicked] = useState<number | null>(null);
   const [score, setScore] = useState(0);
   const [done, setDone] = useState(false);
+  const [quizRun, setQuizRun] = useState(0);
+
+  const [comprehensionScope, setComprehensionScope] = useState<ComprehensionScope>("all");
+  const [missedComprehensionIds, setMissedComprehensionIds] = useState<number[]>(() => readMissedComprehensionIds(progress, doc.analysis.questions.length));
+  const [comprehensionUseAll, setComprehensionUseAll] = useState(true);
+  const [comprehensionCount, setComprehensionCount] = useState(Math.max(1, Math.min(5, doc.analysis.questions.length)));
+  const [activeComprehensionIds, setActiveComprehensionIds] = useState<number[]>(() => shuffle(doc.analysis.questions.map((_, questionIndex) => questionIndex)));
+
+  const [vocabDirection, setVocabDirection] = useState<VocabDirection>("english-korean");
+  const [vocabFormat, setVocabFormat] = useState<VocabFormat>("choice");
+  const [vocabUseAll, setVocabUseAll] = useState(false);
+  const [vocabCount, setVocabCount] = useState(10);
+  const [writtenAnswer, setWrittenAnswer] = useState("");
+  const [writtenRevealed, setWrittenRevealed] = useState(false);
+  const [writtenGraded, setWrittenGraded] = useState<boolean | null>(null);
+  const [flashcardFlipped, setFlashcardFlipped] = useState(false);
+  const [flashcardGraded, setFlashcardGraded] = useState(false);
+
   const [orderingScope, setOrderingScope] = useState<OrderingScope>("all");
   const [selectedSentenceIds, setSelectedSentenceIds] = useState<number[]>([]);
   const [shortenLongSentence, setShortenLongSentence] = useState(true);
@@ -548,7 +508,11 @@ function Quiz({ doc, words, progress, onResult }: { doc: StudyDocument; words: V
   const [orderingCorrect, setOrderingCorrect] = useState(false);
 
   const questions = useMemo<QuizQuestion[]>(() => {
-    if (mode === "comprehension") return doc.analysis.questions.map((q: ReadingQuestion) => ({ kind: "choice", prompt: q.question, options: q.options, answer: q.answer, explanation: q.explanation }));
+    void quizRun;
+    if (mode === "comprehension") return activeComprehensionIds.flatMap((questionId): ChoiceQuizQuestion[] => {
+      const question = doc.analysis.questions[questionId] as ReadingQuestion | undefined;
+      return question ? [{ kind: "choice", prompt: question.question, options: question.options, answer: question.answer, explanation: question.explanation, sourceQuestionId: questionId }] : [];
+    });
     if (mode === "ordering") {
       const targetSentences = orderingScope === "all"
         ? doc.analysis.sentences
@@ -556,7 +520,7 @@ function Quiz({ doc, words, progress, onResult }: { doc: StudyDocument; words: V
           ? doc.analysis.sentences.filter((sentence) => progress.bookmarked_sentence_ids.includes(sentence.id))
           : doc.analysis.sentences.filter((sentence) => selectedSentenceIds.includes(sentence.id));
 
-      return targetSentences.flatMap((sentence): OrderingQuizQuestion[] => {
+      return shuffle(targetSentences).flatMap((sentence): OrderingQuizQuestion[] => {
         const protectedPhrases = [
           ...sentence.keywords.map((keyword) => keyword.word),
           ...words.filter((word) => word.sentence_id === sentence.id).map((word) => word.word),
@@ -567,25 +531,59 @@ function Quiz({ doc, words, progress, onResult }: { doc: StudyDocument; words: V
       });
     }
     if (!words.length) return [];
-    if (mode === "meaning") return shuffle(words).slice(0, 10).map((word) => {
-      const alternatives = shuffle(words.filter((item) => item.id !== word.id).map((item) => item.meaning)).slice(0, 3);
-      const options = shuffle([word.meaning, ...alternatives]);
-      return { kind: "choice", prompt: `“${word.word}”의 뜻은?`, options, answer: options.indexOf(word.meaning), explanation: word.source_sentence, wordId: word.id };
+    const targetWords = shuffle(words).slice(0, vocabUseAll ? words.length : Math.min(Math.max(vocabCount, 1), words.length));
+    if (mode === "flashcard") return targetWords.map((word): FlashcardQuestion => ({
+      kind: "flashcard",
+      front: vocabDirection === "english-korean" ? word.word : word.meaning,
+      back: vocabDirection === "english-korean" ? word.meaning : word.word,
+      example: word.source_sentence,
+      translation: word.translation,
+      wordId: word.id,
+    }));
+    if (mode === "meaning") return targetWords.map((word): ChoiceQuizQuestion | WrittenQuizQuestion => {
+      const prompt = vocabDirection === "english-korean" ? `“${word.word}”의 뜻은?` : `“${word.meaning}”에 해당하는 영어 단어는?`;
+      const answerText = vocabDirection === "english-korean" ? word.meaning : word.word;
+      if (vocabFormat === "written") return { kind: "written", prompt, answerText, explanation: `${word.source_sentence}\n${word.translation}`, wordId: word.id };
+      const candidates = words.filter((item) => item.id !== word.id).map((item) => vocabDirection === "english-korean" ? item.meaning : item.word);
+      const alternatives = shuffle([...new Set(candidates.filter((candidate) => candidate !== answerText))]).slice(0, 3);
+      const options = shuffle([answerText, ...alternatives]);
+      return { kind: "choice", prompt, options, answer: options.indexOf(answerText), explanation: word.source_sentence, wordId: word.id };
     });
-    return shuffle(words).slice(0, 10).map((word) => {
+    return targetWords.map((word): ChoiceQuizQuestion => {
       const blank = word.source_sentence.replace(new RegExp(`\\b${word.word.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`, "i"), "______");
-      const alternatives = shuffle(words.filter((item) => item.id !== word.id).map((item) => item.word)).slice(0, 3);
+      const alternatives = shuffle([...new Set(words.filter((item) => item.id !== word.id).map((item) => item.word))]).slice(0, 3);
       const options = shuffle([word.word, ...alternatives]);
       return { kind: "choice", prompt: blank, options, answer: options.indexOf(word.word), explanation: `${word.word} — ${word.meaning}`, wordId: word.id };
     });
-  }, [mode, words, doc, orderingScope, selectedSentenceIds, shortenLongSentence, progress.bookmarked_sentence_ids]);
+  }, [mode, words, doc, orderingScope, selectedSentenceIds, shortenLongSentence, progress.bookmarked_sentence_ids, activeComprehensionIds, vocabDirection, vocabFormat, vocabUseAll, vocabCount, quizRun]);
 
-  const clearAnswer = () => { setPicked(null); setOrderedTokenIds([]); setOrderingSubmitted(false); setOrderingCorrect(false); };
-  const reset = (nextMode = mode) => { setMode(nextMode); setIndex(0); setScore(0); setDone(false); clearAnswer(); };
-  const updateOrderingScope = (scope: OrderingScope) => { setOrderingScope(scope); setIndex(0); setScore(0); setDone(false); clearAnswer(); };
+  const clearAnswer = () => {
+    setPicked(null); setOrderedTokenIds([]); setOrderingSubmitted(false); setOrderingCorrect(false);
+    setWrittenAnswer(""); setWrittenRevealed(false); setWrittenGraded(null); setFlashcardFlipped(false); setFlashcardGraded(false);
+  };
+  const clearRun = () => { setIndex(0); setScore(0); setDone(false); clearAnswer(); };
+  const prepareComprehension = (scope = comprehensionScope, useAll = comprehensionUseAll, count = comprehensionCount) => {
+    const allIds = doc.analysis.questions.map((_, questionIndex) => questionIndex);
+    const pool = scope === "incorrect" ? missedComprehensionIds.filter((id) => allIds.includes(id)) : allIds;
+    const limit = useAll ? pool.length : Math.min(Math.max(count, 1), pool.length);
+    setMode("comprehension"); setActiveComprehensionIds(shuffle(pool).slice(0, limit)); setQuizRun((value) => value + 1); clearRun();
+  };
+  const reset = (nextMode = mode) => {
+    if (nextMode === "comprehension") { prepareComprehension(); return; }
+    setMode(nextMode); setQuizRun((value) => value + 1); clearRun();
+  };
+  const saveMissedComprehensionIds = (questionId: number, correct: boolean) => {
+    const next = correct
+      ? missedComprehensionIds.filter((id) => id !== questionId)
+      : [...new Set([...missedComprehensionIds, questionId])];
+    if (next.length === missedComprehensionIds.length && next.every((id, itemIndex) => id === missedComprehensionIds[itemIndex])) return;
+    setMissedComprehensionIds(next);
+    onProgress({ ...progress, sentence_notes: { ...(progress.sentence_notes ?? {}), [missedComprehensionKey]: JSON.stringify(next) }, last_studied_at: new Date().toISOString() });
+  };
+  const updateOrderingScope = (scope: OrderingScope) => { setOrderingScope(scope); setQuizRun((value) => value + 1); clearRun(); };
   const updateSentenceSelection = (sentenceId: number) => {
     setSelectedSentenceIds((current) => current.includes(sentenceId) ? current.filter((id) => id !== sentenceId) : [...current, sentenceId]);
-    setIndex(0); setScore(0); setDone(false); clearAnswer();
+    setQuizRun((value) => value + 1); clearRun();
   };
   const answer = (choice: number) => {
     const question = questions[index];
@@ -593,16 +591,25 @@ function Quiz({ doc, words, progress, onResult }: { doc: StudyDocument; words: V
     setPicked(choice);
     const correct = choice === question.answer;
     if (correct) setScore((value) => value + 1);
+    if (question.sourceQuestionId !== undefined) saveMissedComprehensionIds(question.sourceQuestionId, correct);
     onResult(question.wordId, correct);
+  };
+  const gradeWritten = (correct: boolean) => {
+    const question = questions[index];
+    if (question?.kind !== "written" || writtenGraded !== null) return;
+    setWrittenGraded(correct); if (correct) setScore((value) => value + 1); onResult(question.wordId, correct);
+  };
+  const gradeFlashcard = (correct: boolean) => {
+    const question = questions[index];
+    if (question?.kind !== "flashcard" || flashcardGraded) return;
+    setFlashcardGraded(true); if (correct) setScore((value) => value + 1); onResult(question.wordId, correct);
   };
   const submitOrdering = () => {
     const question = questions[index];
     if (question?.kind !== "ordering" || orderingSubmitted || orderedTokenIds.length !== question.answerTokens.length) return;
     const answerTokens = orderedTokenIds.map((id) => question.shuffledTokens.find((token) => token.id === id)?.text ?? "");
     const correct = answerTokens.every((token, tokenIndex) => token === question.answerTokens[tokenIndex]);
-    setOrderingCorrect(correct);
-    setOrderingSubmitted(true);
-    if (correct) setScore((value) => value + 1);
+    setOrderingCorrect(correct); setOrderingSubmitted(true); if (correct) setScore((value) => value + 1);
   };
   const next = () => {
     if (index + 1 >= questions.length) setDone(true);
@@ -612,25 +619,40 @@ function Quiz({ doc, words, progress, onResult }: { doc: StudyDocument; words: V
   const question = questions[index];
   const selectedOrderingTokens = question?.kind === "ordering" ? orderedTokenIds.map((id) => question.shuffledTokens.find((token) => token.id === id)).filter((token): token is { id: string; text: string } => Boolean(token)) : [];
   const availableOrderingTokens = question?.kind === "ordering" ? question.shuffledTokens.filter((token) => !orderedTokenIds.includes(token.id)) : [];
-  const emptyTitle = mode === "ordering" ? orderingScope === "difficult" ? "어려움 체크한 문장이 없어요." : "출제할 문장을 선택해 주세요." : "단어 퀴즈를 만들 단어가 부족해요.";
-  const emptyDescription = mode === "ordering" ? orderingScope === "difficult" ? "본문 학습에서 문장에 ‘어려움 체크’를 표시해 주세요." : "직접 선택에서 한 문장 이상 골라 주세요." : "본문에서 단어를 4개 이상 저장해 보세요.";
+  const availableComprehensionCount = comprehensionScope === "incorrect" ? missedComprehensionIds.length : doc.analysis.questions.length;
+  const emptyTitle = mode === "comprehension" && comprehensionScope === "incorrect" ? "현재 저장된 본문 이해 오답이 없어요." : mode === "ordering" ? orderingScope === "difficult" ? "어려움 체크한 문장이 없어요." : "출제할 문장을 선택해 주세요." : "단어 퀴즈를 만들 단어가 없어요.";
+  const emptyDescription = mode === "comprehension" ? "전체 문제에서 새로 풀거나, 틀린 문제가 생기면 오답만 다시 풀 수 있어요." : mode === "ordering" ? orderingScope === "difficult" ? "본문 학습에서 문장에 ‘어려움 체크’를 표시해 주세요." : "직접 선택에서 한 문장 이상 골라 주세요." : "본문에서 단어를 저장한 뒤 다시 시작해 주세요.";
 
   return <main className="tool-page quiz-page">
-    <div className="tool-heading"><div><span className="eyebrow">ACTIVE RECALL</span><h1>학습 퀴즈</h1><p>본문 이해, 단어 뜻, 빈칸과 어순 배열을 연습하세요.</p></div></div>
-    <div className="quiz-modes"><button className={mode === "comprehension" ? "active" : ""} onClick={() => reset("comprehension")}>본문 이해</button><button className={mode === "meaning" ? "active" : ""} onClick={() => reset("meaning")}>단어 뜻</button><button className={mode === "cloze" ? "active" : ""} onClick={() => reset("cloze")}>빈칸 완성</button><button className={mode === "ordering" ? "active" : ""} onClick={() => reset("ordering")}>어순 배열</button></div>
+    <div className="tool-heading"><div><span className="eyebrow">ACTIVE RECALL</span><h1>학습 퀴즈</h1><p>본문 이해, 단어 뜻, 빈칸, 플래시카드와 어순 배열을 연습하세요.</p></div></div>
+    <div className="quiz-modes"><button className={mode === "comprehension" ? "active" : ""} onClick={() => prepareComprehension()}>본문 이해</button><button className={mode === "meaning" ? "active" : ""} onClick={() => reset("meaning")}>단어 뜻</button><button className={mode === "flashcard" ? "active" : ""} onClick={() => reset("flashcard")}>플래시카드</button><button className={mode === "cloze" ? "active" : ""} onClick={() => reset("cloze")}>빈칸 완성</button><button className={mode === "ordering" ? "active" : ""} onClick={() => reset("ordering")}>어순 배열</button></div>
+
+    {mode === "comprehension" && <section className="quiz-settings">
+      <div className="quiz-setting-row"><strong>출제 범위</strong><div className="scope-buttons"><button className={comprehensionScope === "all" ? "active" : ""} onClick={() => { setComprehensionScope("all"); prepareComprehension("all"); }}>전체 문제</button><button className={comprehensionScope === "incorrect" ? "active" : ""} onClick={() => { setComprehensionScope("incorrect"); prepareComprehension("incorrect"); }}>오답만 <b>{missedComprehensionIds.length}</b></button></div></div>
+      <div className="quiz-setting-row"><strong>문제 수</strong><label className="all-count-toggle"><input type="checkbox" checked={comprehensionUseAll} onChange={(event) => { setComprehensionUseAll(event.target.checked); prepareComprehension(comprehensionScope, event.target.checked); }} />전체 출제</label><label className="number-picker"><input type="number" min="1" max={Math.max(1, availableComprehensionCount)} disabled={comprehensionUseAll} value={Math.min(comprehensionCount, Math.max(1, availableComprehensionCount))} onChange={(event) => { const count = Math.max(1, Number(event.target.value)); setComprehensionCount(count); prepareComprehension(comprehensionScope, false, count); }} />개</label><button className="reshuffle-button" onClick={() => prepareComprehension()}>↻ 새로 섞어 출제</button></div>
+      <p className="scope-summary">현재 범위 {availableComprehensionCount}문제 · 틀린 문제는 자동으로 오답 목록에 저장됩니다.</p>
+    </section>}
+
+    {(mode === "meaning" || mode === "flashcard" || mode === "cloze") && <section className="quiz-settings compact">
+      {(mode === "meaning" || mode === "flashcard") && <div className="quiz-setting-row"><strong>학습 방향</strong><div className="scope-buttons"><button className={vocabDirection === "english-korean" ? "active" : ""} onClick={() => { setVocabDirection("english-korean"); reset(mode); }}>영어 → 한글</button><button className={vocabDirection === "korean-english" ? "active" : ""} onClick={() => { setVocabDirection("korean-english"); reset(mode); }}>한글 → 영어</button></div></div>}
+      {mode === "meaning" && <div className="quiz-setting-row"><strong>답변 방식</strong><div className="scope-buttons"><button className={vocabFormat === "choice" ? "active" : ""} onClick={() => { setVocabFormat("choice"); reset("meaning"); }}>선택형</button><button className={vocabFormat === "written" ? "active" : ""} onClick={() => { setVocabFormat("written"); reset("meaning"); }}>서술형</button></div></div>}
+      <div className="quiz-setting-row"><strong>단어 수</strong><label className="all-count-toggle"><input type="checkbox" checked={vocabUseAll} onChange={(event) => { setVocabUseAll(event.target.checked); reset(mode); }} />전체</label><label className="number-picker"><input type="number" min="1" max={Math.max(1, words.length)} disabled={vocabUseAll} value={Math.min(vocabCount, Math.max(1, words.length))} onChange={(event) => { setVocabCount(Math.max(1, Number(event.target.value))); reset(mode); }} />개</label><button className="reshuffle-button" onClick={() => reset(mode)}>↻ 다시 섞기</button></div>
+    </section>}
+
     {mode === "ordering" && <section className="ordering-setup">
-      <div className="ordering-setting"><strong>출제 범위</strong><div className="scope-buttons"><button className={orderingScope === "all" ? "active" : ""} onClick={() => updateOrderingScope("all")}>전체 문장</button><button className={orderingScope === "difficult" ? "active" : ""} onClick={() => updateOrderingScope("difficult")}>어려움 체크</button><button className={orderingScope === "selected" ? "active" : ""} onClick={() => updateOrderingScope("selected")}>직접 선택</button></div></div>
+      <div className="ordering-setting"><strong>출제 범위</strong><div className="scope-buttons"><button className={orderingScope === "all" ? "active" : ""} onClick={() => updateOrderingScope("all")}>전체 문장</button><button className={orderingScope === "difficult" ? "active" : ""} onClick={() => updateOrderingScope("difficult")}>어려움 체크</button><button className={orderingScope === "selected" ? "active" : ""} onClick={() => updateOrderingScope("selected")}>직접 선택</button></div><button className="reshuffle-button" onClick={() => reset("ordering")}>↻ 문장·단어 다시 섞기</button></div>
       <label className="excerpt-toggle"><input type="checkbox" checked={shortenLongSentence} onChange={(event) => { setShortenLongSentence(event.target.checked); reset("ordering"); }} /><span><b>긴 문장은 핵심 일부만 출제</b><small>짧은 문장은 전체를 사용하고, 긴 문장은 의미 있는 구간으로 나눕니다.</small></span></label>
-      {orderingScope === "difficult" && <p className="scope-summary">어려움 체크한 문장 {progress.bookmarked_sentence_ids.length}개를 출제합니다.</p>}
+      {orderingScope === "difficult" && <p className="scope-summary">어려움 체크한 문장 {progress.bookmarked_sentence_ids.length}개를 매번 섞어서 출제합니다.</p>}
       {orderingScope === "selected" && <div className="sentence-picker"><header><span>원하는 문장을 골라 주세요.</span><div><button onClick={() => { setSelectedSentenceIds(doc.analysis.sentences.map((sentence) => sentence.id)); reset("ordering"); }}>전체 선택</button><button onClick={() => { setSelectedSentenceIds([]); reset("ordering"); }}>선택 해제</button></div></header>{doc.analysis.sentences.map((sentence) => <label key={sentence.id}><input type="checkbox" checked={selectedSentenceIds.includes(sentence.id)} onChange={() => updateSentenceSelection(sentence.id)} /><span><b>{sentence.id}</b>{sentence.english}</span></label>)}</div>}
     </section>}
-    {!questions.length ? <div className="empty-state"><b>{emptyTitle}</b><p>{emptyDescription}</p></div> : done ? <div className="result-card"><span>RESULT</span><strong>{score} / {questions.length}</strong><p>{score === questions.length ? "완벽해요!" : mode === "ordering" ? "틀린 문장은 본문 어순과 함께 다시 확인해 보세요." : "틀린 문제를 단어장에서 다시 확인해 보세요."}</p><button className="primary-button" onClick={() => reset()}>다시 풀기</button></div> : question?.kind === "ordering" ? <section className="quiz-card ordering-card">
+
+    {!questions.length ? <div className="empty-state"><b>{emptyTitle}</b><p>{emptyDescription}</p></div> : done ? <div className="result-card"><span>RESULT</span><strong>{score} / {questions.length}</strong><p>{score === questions.length ? "완벽해요!" : mode === "comprehension" ? `현재 본문 이해 오답 ${missedComprehensionIds.length}개가 저장되어 있어요.` : mode === "ordering" ? "다시 풀면 문장과 단어 순서가 새롭게 섞입니다." : mode === "flashcard" ? "헷갈린 카드는 다시 보기로 반복해 보세요." : "틀린 단어를 단어장에서 다시 확인해 보세요."}</p><div className="result-actions">{mode === "comprehension" && missedComprehensionIds.length > 0 && <button onClick={() => { setComprehensionScope("incorrect"); prepareComprehension("incorrect"); }}>오답만 풀기</button>}<button className="primary-button" onClick={() => reset()}>다시 섞어 풀기</button></div></div> : question?.kind === "ordering" ? <section className="quiz-card ordering-card">
       <header><span>{index + 1} / {questions.length}</span><div><i style={{ width: `${((index + 1) / questions.length) * 100}%` }} /></div><b>{score} correct</b></header>
       <div className="ordering-prompt"><span>{question.shortened ? "긴 문장 일부 출제" : "문장 전체 출제"}</span><h2>영어 어순에 맞게 배열하세요.</h2><p>{question.prompt}</p></div>
       <div className={`ordering-answer ${orderingSubmitted ? orderingCorrect ? "correct" : "wrong" : ""}`}>{selectedOrderingTokens.length ? selectedOrderingTokens.map((token) => <button key={token.id} disabled={orderingSubmitted} onClick={() => setOrderedTokenIds((ids) => ids.filter((id) => id !== token.id))}>{token.text}</button>) : <span>아래 단어를 순서대로 선택하세요.</span>}</div>
       <div className="ordering-bank">{availableOrderingTokens.map((token) => <button key={token.id} disabled={orderingSubmitted} onClick={() => setOrderedTokenIds((ids) => [...ids, token.id])}>{token.text}</button>)}</div>
       {!orderingSubmitted ? <div className="ordering-actions"><button onClick={() => setOrderedTokenIds([])} disabled={!orderedTokenIds.length}>초기화</button><button className="primary-button" onClick={submitOrdering} disabled={orderedTokenIds.length !== question.answerTokens.length}>채점하기</button></div> : <div className="answer-note"><b>{orderingCorrect ? "정답입니다" : "정답을 확인하세요"}</b><p>{question.answerTokens.join(" ")}</p><button onClick={next}>{index + 1 === questions.length ? "결과 보기" : "다음 문제 →"}</button></div>}
-    </section> : question?.kind === "choice" ? <section className="quiz-card"><header><span>{index + 1} / {questions.length}</span><div><i style={{ width: `${((index + 1) / questions.length) * 100}%` }} /></div><b>{score} correct</b></header><h2>{question.prompt}</h2><div className="options">{question.options.map((option, optionIndex) => <button key={`${option}-${optionIndex}`} className={picked === null ? "" : optionIndex === question.answer ? "correct" : optionIndex === picked ? "wrong" : "muted"} onClick={() => answer(optionIndex)}><span>{String.fromCharCode(65 + optionIndex)}</span>{option}</button>)}</div>{picked !== null && <div className="answer-note"><b>{picked === question.answer ? "정답입니다" : "정답을 확인하세요"}</b><p>{question.explanation}</p><button onClick={next}>{index + 1 === questions.length ? "결과 보기" : "다음 문제 →"}</button></div>}</section> : null}
+    </section> : question?.kind === "written" ? <section className="quiz-card written-card"><header><span>{index + 1} / {questions.length}</span><div><i style={{ width: `${((index + 1) / questions.length) * 100}%` }} /></div><b>{score} correct</b></header><h2>{question.prompt}</h2><div className="written-response"><input autoFocus value={writtenAnswer} disabled={writtenRevealed} onChange={(event) => setWrittenAnswer(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter" && writtenAnswer.trim()) setWrittenRevealed(true); }} placeholder="정답을 직접 입력하세요" /><button className="primary-button" disabled={!writtenAnswer.trim() || writtenRevealed} onClick={() => setWrittenRevealed(true)}>정답 확인</button></div>{writtenRevealed && <div className="answer-note written-note"><b>정답: {question.answerText}</b><p>내 답: {writtenAnswer}</p><p className="example-note">{question.explanation}</p>{writtenGraded === null ? <div className="self-grade"><span>내 답을 스스로 채점해 주세요.</span><button onClick={() => gradeWritten(false)}>틀렸어요</button><button className="correct-button" onClick={() => gradeWritten(true)}>맞았어요</button></div> : <><strong>{writtenGraded ? "정답으로 기록했습니다." : "오답으로 기록했습니다."}</strong><button onClick={next}>{index + 1 === questions.length ? "결과 보기" : "다음 문제 →"}</button></>}</div>}</section> : question?.kind === "flashcard" ? <section className="quiz-card flashcard-wrap"><header><span>{index + 1} / {questions.length}</span><div><i style={{ width: `${((index + 1) / questions.length) * 100}%` }} /></div><b>{score} memorized</b></header><button className={`flashcard ${flashcardFlipped ? "flipped" : ""}`} onClick={() => setFlashcardFlipped(true)}><span>{flashcardFlipped ? "BACK" : "FRONT"}</span><strong>{flashcardFlipped ? question.back : question.front}</strong>{flashcardFlipped ? <small>{question.example}<em>{question.translation}</em></small> : <small>카드를 눌러 답을 확인하세요.</small>}</button>{flashcardFlipped && !flashcardGraded && <div className="flashcard-actions"><button onClick={() => gradeFlashcard(false)}>다시 보기</button><button className="primary-button" onClick={() => gradeFlashcard(true)}>외웠어요</button></div>}{flashcardGraded && <div className="answer-note"><b>학습 결과를 기록했습니다.</b><button onClick={next}>{index + 1 === questions.length ? "결과 보기" : "다음 카드 →"}</button></div>}</section> : question?.kind === "choice" ? <section className="quiz-card"><header><span>{index + 1} / {questions.length}</span><div><i style={{ width: `${((index + 1) / questions.length) * 100}%` }} /></div><b>{score} correct</b></header><h2>{question.prompt}</h2><div className="options">{question.options.map((option, optionIndex) => <button key={`${option}-${optionIndex}`} className={picked === null ? "" : optionIndex === question.answer ? "correct" : optionIndex === picked ? "wrong" : "muted"} onClick={() => answer(optionIndex)}><span>{String.fromCharCode(65 + optionIndex)}</span>{option}</button>)}</div>{picked !== null && <div className="answer-note"><b>{picked === question.answer ? "정답입니다" : "정답을 확인하세요"}</b><p>{question.explanation}</p><button onClick={next}>{index + 1 === questions.length ? "결과 보기" : "다음 문제 →"}</button></div>}</section> : null}
   </main>;
 }
 
@@ -691,5 +713,5 @@ export default function App({
 
   if (loading) return <div className="loading-screen"><Logo /><p>내 학습실을 여는 중…</p></div>;
   if (configured && !session) return <AuthScreen />;
-  return <div className="app-shell"><header className="topbar"><button className="brand-button" onClick={() => setView("library")}><Logo /></button><nav><button className={view === "library" ? "active" : ""} onClick={() => setView("library")}>내 본문</button><button className={view === "study" ? "active" : ""} disabled={!current} onClick={() => setView("study")}>본문 학습</button><button className={view === "words" ? "active" : ""} disabled={!current} onClick={() => setView("words")}>단어장</button><button className={view === "quiz" ? "active" : ""} disabled={!current} onClick={() => setView("quiz")}>퀴즈</button></nav><div className="account-area">{!configured && <span className="demo-badge">DEMO</span>}<span>{session?.user.email ?? "샘플 학습"}</span>{session && <button onClick={() => supabase?.auth.signOut()}>로그아웃</button>}</div></header>{view === "library" && <Library documents={documents} onOpen={openDocument} onUpload={() => setView("upload")} />}{view === "upload" && session && <UploadPanel userId={session.user.id} onCreated={(doc) => { setDocuments((items) => [doc, ...items]); void openDocument(doc); }} onCancel={() => setView("library")} />}{current && view === "study" && <StudyView doc={current} words={words} progress={progress} onSaveWord={saveWord} onDeleteWord={deleteWord} onProgress={saveProgress} onView={setView} />}{current && view === "words" && <Wordbook words={words} onUpdate={updateWord} onDelete={deleteWord} onStudy={() => setView("study")} />}{current && view === "quiz" && <Quiz doc={current} words={words} progress={progress} onResult={quizResult} />}</div>;
+  return <div className="app-shell"><header className="topbar"><button className="brand-button" onClick={() => setView("library")}><Logo /></button><nav><button className={view === "library" ? "active" : ""} onClick={() => setView("library")}>내 본문</button><button className={view === "study" ? "active" : ""} disabled={!current} onClick={() => setView("study")}>본문 학습</button><button className={view === "words" ? "active" : ""} disabled={!current} onClick={() => setView("words")}>단어장</button><button className={view === "quiz" ? "active" : ""} disabled={!current} onClick={() => setView("quiz")}>퀴즈</button></nav><div className="account-area">{!configured && <span className="demo-badge">DEMO</span>}<span>{session?.user.email ?? "샘플 학습"}</span>{session && <button onClick={() => supabase?.auth.signOut()}>로그아웃</button>}</div></header>{view === "library" && <Library documents={documents} onOpen={openDocument} onUpload={() => setView("upload")} />}{view === "upload" && session && <UploadPanel userId={session.user.id} onCreated={(doc) => { setDocuments((items) => [doc, ...items]); void openDocument(doc); }} onCancel={() => setView("library")} />}{current && view === "study" && <StudyView doc={current} words={words} progress={progress} onSaveWord={saveWord} onDeleteWord={deleteWord} onProgress={saveProgress} onView={setView} />}{current && view === "words" && <Wordbook words={words} onUpdate={updateWord} onDelete={deleteWord} onStudy={() => setView("study")} />}{current && view === "quiz" && <Quiz doc={current} words={words} progress={progress} onProgress={saveProgress} onResult={quizResult} />}</div>;
 }
