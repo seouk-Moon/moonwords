@@ -32,6 +32,7 @@ export type DocumentAnalysis = {
   sections: AnalysisSection[];
   sentences: AnalysisSentence[];
   questions: ReadingQuestion[];
+  cloze_questions?: ReadingQuestion[];
 };
 
 export type StudyDocument = {
