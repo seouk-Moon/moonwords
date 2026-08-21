@@ -1,0 +1,4 @@
+project_id = "moonwords"
+
+[functions.process-document]
+verify_jwt = true
