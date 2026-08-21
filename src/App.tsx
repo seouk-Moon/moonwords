@@ -5,6 +5,7 @@ import type { Session } from "@supabase/supabase-js";
 import * as XLSX from "xlsx";
 import { demoDocument } from "./demo";
 import { extractTextFromFile, normalizePastedText } from "./lib/file-parsers";
+import { buildOrderingExercise } from "./lib/ordering-quiz";
 import { cloudConfigured, configureSupabase, supabase } from "./lib/supabase";
 import type {
   ReadingQuestion,
@@ -14,14 +15,26 @@ import type {
 } from "./types";
 
 type View = "library" | "study" | "words" | "quiz" | "upload";
-type QuizMode = "meaning" | "cloze" | "comprehension";
-type QuizQuestion = {
+type QuizMode = "meaning" | "cloze" | "comprehension" | "ordering";
+type OrderingScope = "all" | "difficult" | "selected";
+type ChoiceQuizQuestion = {
+  kind: "choice";
   prompt: string;
   options: string[];
   answer: number;
   explanation: string;
   wordId?: string;
 };
+type OrderingQuizQuestion = {
+  kind: "ordering";
+  prompt: string;
+  explanation: string;
+  sentenceId: number;
+  answerTokens: string[];
+  shuffledTokens: Array<{ id: string; text: string }>;
+  shortened: boolean;
+};
+type QuizQuestion = ChoiceQuizQuestion | OrderingQuizQuestion;
 type SelectedWord = {
   word: string;
   sentenceId: number;
@@ -175,8 +188,8 @@ function AuthScreen() {
         <Logo />
         <p className="eyebrow">YOUR READING, YOUR WORDS</p>
         <h1>어떤 영어 본문도<br />나만의 학습지로.</h1>
-        <p>파일이나 텍스트를 올리면 Gemini가 문장별 번역, 문맥 단어, 본문 구조와 퀴즈를 만들고 계정에 안전하게 저장합니다.</p>
-        <div className="feature-row"><span>PDF · DOCX · TXT</span><span>문맥 단어장</span><span>맞춤 퀴즈</span></div>
+        <p>파일이나 텍스트를 올리면 Gemini가 문장별 번역, 단어 뜻, 본문 구조와 퀴즈를 만들고 계정에 안전하게 저장합니다.</p>
+        <div className="feature-row"><span>PDF · DOCX · TXT</span><span>나만의 단어장</span><span>맞춤 퀴즈</span></div>
       </section>
       <form className="auth-card" onSubmit={submit}>
         <span className="section-kicker">{mode === "login" ? "WELCOME BACK" : "START LEARNING"}</span>
@@ -259,7 +272,7 @@ function UploadPanel({ userId, onCreated, onCancel }: { userId: string; onCreate
       <button className="back-button" onClick={onCancel}>← 내 본문</button>
       <span className="section-kicker">NEW READING</span>
       <h1>새 본문을 학습지로 만들기</h1>
-      <p>영어 원문을 올리면 문장별 자연스러운 번역과 문맥 어휘, 구조 분석, 이해 문제를 자동 생성합니다.</p>
+      <p>영어 원문을 올리면 문장별 자연스러운 번역과 단어 뜻, 구조 분석, 이해 문제를 자동 생성합니다.</p>
       <div className="segmented"><button className={inputMode === "file" ? "active" : ""} onClick={() => setInputMode("file")}>파일 올리기</button><button className={inputMode === "text" ? "active" : ""} onClick={() => setInputMode("text")}>텍스트 붙여넣기</button></div>
       <label className="field">제목 (선택)<input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="예: The Future of Space Travel" /></label>
       {inputMode === "file" ? (
@@ -291,7 +304,7 @@ function StudyView({ doc, words, progress, onSaveWord, onDeleteWord, onProgress,
   const playNext = useRef<(index: number, run: number) => void>(() => undefined);
   const sentences = doc.analysis.sentences;
   const understood = progress.understood_sentence_ids;
-  const bookmarks = progress.bookmarked_sentence_ids;
+  const difficultSentences = progress.bookmarked_sentence_ids;
 
   const selectWord = useCallback(async () => {
     const selection = window.getSelection();
@@ -444,44 +457,181 @@ function StudyView({ doc, words, progress, onSaveWord, onDeleteWord, onProgress,
     await onSaveWord({ document_id: doc.id, sentence_id: sentence.id, word: selected.word, meaning: selected.meaning, source_sentence: sentence.english, translation: sentence.korean, note: "", status: "learning", review_count: 0, correct_count: 0, incorrect_count: 0 });
     setSelected(null); window.getSelection()?.removeAllRanges();
   };
-  const deleteSelected = async () => {
+  const confirmDeleteSelected = async () => {
     if (!selected?.savedId) return;
-    if (!selected.confirmDelete) {
-      setSelected({ ...selected, confirmDelete: true });
-      return;
-    }
     await onDeleteWord(selected.savedId);
     setSelected(null);
     window.getSelection()?.removeAllRanges();
   };
 
-  return <main className="study-page"><section className="reading-head"><span className="eyebrow">{doc.analysis.topic}</span><h1>{doc.title}</h1><p>{doc.analysis.summary}</p><div className="study-stats"><span>{sentences.length} 문장</span><span>{understood.length} 이해 완료</span><span>{words.length} 저장 단어</span><span>{doc.analysis.level}</span></div></section><nav className="study-nav"><button className="active">본문 학습</button><button onClick={() => onView("words")}>단어장 <b>{words.length}</b></button><button onClick={() => onView("quiz")}>퀴즈</button></nav><div className="study-layout"><article className="article-card" ref={articleRef} onMouseUp={selectWord}><div className="article-tip"><b>모르는 단어를 드래그해 보세요.</b><span>저장된 단어는 하이라이트를 눌러 뜻 확인·삭제가 가능해요.</span></div><div className="audio-toolbar"><div><button className="audio-play" onClick={listeningState === "idle" ? startFullListening : toggleListeningPause}>{listeningState === "idle" ? "▶ 전체 듣기" : listeningState === "paused" ? "▶ 계속 듣기" : "Ⅱ 일시정지"}</button>{listeningState !== "idle" && <button onClick={stopFullListening}>■ 정지</button>}<span>{speakingSentenceId ? `${sentences.findIndex((sentence) => sentence.id === speakingSentenceId) + 1}/${sentences.length} 문장` : "영어 본문 연속 재생"}</span></div><button className="audio-export" disabled={!supabase || exportingAudio} onClick={exportFullAudio}>{exportingAudio ? audioStatus : "↓ 전체 음원 WAV"}</button></div>{audioError && <p className="audio-error">{audioError}</p>}{!audioError && audioStatus && !exportingAudio && <p className="audio-complete">{audioStatus}</p>}{doc.analysis.sections.map((section) => <section className="paragraph-block" key={section.id}><header><span>{String(section.id).padStart(2, "0")}</span><div><b>{section.label}</b><small>{section.role}</small></div></header>{sentences.filter((sentence) => sentence.paragraph === section.id).map((sentence) => { const sentenceWords = words.filter((word) => word.sentence_id === sentence.id); return <div className={`sentence-pair ${understood.includes(sentence.id) ? "understood" : ""} ${speakingSentenceId === sentence.id ? "listening" : ""}`} data-sentence={sentence.id} key={sentence.id}><div className="sentence-number">{sentence.id}</div><div className="sentence-copy"><p className="english"><HighlightedEnglish text={sentence.english} words={sentenceWords} onOpen={openSavedWord} /></p><p className="korean">{sentence.korean}</p><div className="sentence-actions"><button onClick={() => speak(sentence.english)}>◉ 듣기</button><button onClick={() => toggle("understood_sentence_ids", sentence.id)}>{understood.includes(sentence.id) ? "✓ 이해함" : "○ 이해 체크"}</button><button onClick={() => toggle("bookmarked_sentence_ids", sentence.id)}>{bookmarks.includes(sentence.id) ? "★ 저장됨" : "☆ 문장 저장"}</button></div></div></div>; })}</section>)}</article><aside className="insight-panel"><span className="section-kicker">READING MAP</span><h3>본문 구조</h3><p>{doc.analysis.structure}</p><div className="structure-list">{doc.analysis.sections.map((section) => <div key={section.id}><b>{section.id}</b><span>{section.label}<small>{section.role}</small></span></div>)}</div><div className="progress-ring"><strong>{Math.round((understood.length / Math.max(sentences.length, 1)) * 100)}%</strong><span>이해 완료</span></div></aside></div>{selected && <div className="selection-popover" style={{ left: selected.x, top: selected.y }}><small>{selected.savedId ? "SAVED WORD" : "CONTEXT MEANING"}</small><strong>{selected.word}</strong><input value={loadingMeaning ? "문맥 뜻 찾는 중…" : selected.meaning} disabled={loadingMeaning} onChange={(e) => setSelected({ ...selected, meaning: e.target.value })} placeholder="뜻을 입력하세요" /><div><button onClick={() => setSelected(null)}>닫기</button>{selected.savedId ? <button className={`delete-word ${selected.confirmDelete ? "confirm" : ""}`} onClick={deleteSelected}>{selected.confirmDelete ? "정말 삭제" : "단어장에서 삭제"}</button> : <button className="save-word" disabled={!selected.meaning || loadingMeaning} onClick={saveSelected}>단어장에 저장</button>}</div>{selected.confirmDelete && <p className="delete-warning">한 번 더 누르면 단어장에서 삭제됩니다.</p>}</div>}</main>;
+  return (
+    <main className="study-page">
+      <section className="reading-head">
+        <span className="eyebrow">{doc.analysis.topic}</span>
+        <h1>{doc.title}</h1>
+        <p>{doc.analysis.summary}</p>
+        <div className="study-stats">
+          <span>{sentences.length} 문장</span><span>{understood.length} 이해 완료</span><span>{difficultSentences.length} 어려움</span><span>{words.length} 저장 단어</span><span>{doc.analysis.level}</span>
+        </div>
+      </section>
+      <nav className="study-nav"><button className="active">본문 학습</button><button onClick={() => onView("words")}>단어장 <b>{words.length}</b></button><button onClick={() => onView("quiz")}>퀴즈</button></nav>
+      <div className="study-layout">
+        <article className="article-card" ref={articleRef} onMouseUp={selectWord}>
+          <div className="article-tip"><b>모르는 단어를 드래그해 보세요.</b><span>저장된 단어는 하이라이트를 눌러 뜻 확인·삭제가 가능해요.</span></div>
+          <div className="audio-toolbar"><div><button className="audio-play" onClick={listeningState === "idle" ? startFullListening : toggleListeningPause}>{listeningState === "idle" ? "▶ 전체 듣기" : listeningState === "paused" ? "▶ 계속 듣기" : "Ⅱ 일시정지"}</button>{listeningState !== "idle" && <button onClick={stopFullListening}>■ 정지</button>}<span>{speakingSentenceId ? `${sentences.findIndex((sentence) => sentence.id === speakingSentenceId) + 1}/${sentences.length} 문장` : "영어 본문 연속 재생"}</span></div><button className="audio-export" disabled={!supabase || exportingAudio} onClick={exportFullAudio}>{exportingAudio ? audioStatus : "↓ 전체 음원 WAV"}</button></div>
+          {audioError && <p className="audio-error">{audioError}</p>}{!audioError && audioStatus && !exportingAudio && <p className="audio-complete">{audioStatus}</p>}
+          {doc.analysis.sections.map((section) => <section className="paragraph-block" key={section.id}>
+            <header><span>{String(section.id).padStart(2, "0")}</span><div><b>{section.label}</b><small>{section.role}</small></div></header>
+            {sentences.filter((sentence) => sentence.paragraph === section.id).map((sentence) => {
+              const sentenceWords = words.filter((word) => word.sentence_id === sentence.id);
+              return <div className={`sentence-pair ${understood.includes(sentence.id) ? "understood" : ""} ${difficultSentences.includes(sentence.id) ? "difficult" : ""} ${speakingSentenceId === sentence.id ? "listening" : ""}`} data-sentence={sentence.id} key={sentence.id}>
+                <div className="sentence-number">{sentence.id}</div>
+                <div className="sentence-copy"><p className="english"><HighlightedEnglish text={sentence.english} words={sentenceWords} onOpen={openSavedWord} /></p><p className="korean">{sentence.korean}</p><div className="sentence-actions"><button onClick={() => speak(sentence.english)}>◉ 듣기</button><button onClick={() => toggle("understood_sentence_ids", sentence.id)}>{understood.includes(sentence.id) ? "✓ 이해함" : "○ 이해 체크"}</button><button onClick={() => toggle("bookmarked_sentence_ids", sentence.id)}>{difficultSentences.includes(sentence.id) ? "⚑ 어려움 해제" : "⚐ 어려움 체크"}</button></div></div>
+              </div>;
+            })}
+          </section>)}
+        </article>
+        <aside className="insight-panel"><span className="section-kicker">READING MAP</span><h3>본문 구조</h3><p>{doc.analysis.structure}</p><div className="structure-list">{doc.analysis.sections.map((section) => <div key={section.id}><b>{section.id}</b><span>{section.label}<small>{section.role}</small></span></div>)}</div><div className="progress-ring"><strong>{Math.round((understood.length / Math.max(sentences.length, 1)) * 100)}%</strong><span>이해 완료</span></div></aside>
+      </div>
+      {selected && <div className="selection-popover" style={{ left: selected.x, top: selected.y }}>
+        <small>{selected.savedId ? "SAVED WORD" : "MEANING"}</small>
+        <strong>{selected.word}</strong>
+        <input value={loadingMeaning ? "뜻 찾는 중…" : selected.meaning} disabled={loadingMeaning} onChange={(e) => setSelected({ ...selected, meaning: e.target.value })} placeholder="뜻을 입력하세요" />
+        <div><button onClick={() => setSelected(null)}>닫기</button>{selected.savedId && !selected.confirmDelete ? <button className="delete-word" onClick={() => setSelected({ ...selected, confirmDelete: true })}>단어장에서 삭제</button> : !selected.savedId ? <button className="save-word" disabled={!selected.meaning || loadingMeaning} onClick={saveSelected}>단어장에 저장</button> : null}</div>
+        {selected.savedId && selected.confirmDelete && <div className="delete-confirm" role="alert"><p>정말 삭제하시겠습니까?</p><div><button onClick={() => setSelected({ ...selected, confirmDelete: false })}>취소</button><button className="confirm-delete" onClick={confirmDeleteSelected}>삭제</button></div></div>}
+      </div>}
+    </main>
+  );
 }
 
 function Wordbook({ words, onUpdate, onDelete, onStudy }: { words: VocabularyItem[]; onUpdate: (item: VocabularyItem) => void; onDelete: (id: string) => void; onStudy: () => void }) {
   const [query, setQuery] = useState("");
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+  const [exportMode, setExportMode] = useState<"full" | "compact">("full");
   const filtered = words.filter((item) => `${item.word} ${item.meaning}`.toLowerCase().includes(query.toLowerCase()));
   const exportExcel = () => {
-    const sheet = XLSX.utils.json_to_sheet(words.map((item) => ({ 단어: item.word, 문맥뜻: item.meaning, 영어문장: item.source_sentence, 번역: item.translation, 메모: item.note, 상태: item.status === "mastered" ? "완료" : "학습중", 정답: item.correct_count, 오답: item.incorrect_count })));
-    const book = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(book, sheet, "단어장"); XLSX.writeFile(book, `MoonWords_${new Date().toISOString().slice(0, 10)}.xlsx`);
+    const rows = exportMode === "compact"
+      ? words.map((item) => ({ 단어: item.word, 뜻: item.meaning }))
+      : words.map((item) => ({ 단어: item.word, 뜻: item.meaning, 영어문장: item.source_sentence, 번역: item.translation, 메모: item.note, 상태: item.status === "mastered" ? "완료" : "학습중", 정답: item.correct_count, 오답: item.incorrect_count }));
+    const sheet = XLSX.utils.json_to_sheet(rows);
+    const book = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(book, sheet, exportMode === "compact" ? "단어와 뜻" : "전체 단어장");
+    XLSX.writeFile(book, `MoonWords_${exportMode === "compact" ? "word_meaning" : "full"}_${new Date().toISOString().slice(0, 10)}.xlsx`);
   };
-  return <main className="tool-page"><div className="tool-heading"><div><span className="eyebrow">MY CONTEXT VOCABULARY</span><h1>문맥 단어장</h1><p>드래그해 저장한 뜻과 원문을 함께 복습하세요.</p></div><button className="outline-button" onClick={exportExcel} disabled={!words.length}>↓ Excel 내보내기</button></div><div className="filter-bar"><input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="단어 또는 뜻 검색" /><span>{filtered.length} WORDS</span></div><div className="word-list">{filtered.map((word) => <article className="word-card" key={word.id}><div className="word-main"><span className={`status-dot ${word.status}`} /><div><input className="word-title" value={word.word} onChange={(e) => onUpdate({ ...word, word: e.target.value })} /><input className="word-meaning" value={word.meaning} onChange={(e) => onUpdate({ ...word, meaning: e.target.value })} /></div></div><blockquote>{word.source_sentence}<small>{word.translation}</small></blockquote><textarea value={word.note} onChange={(e) => onUpdate({ ...word, note: e.target.value })} placeholder="암기 팁이나 예문 메모" /><footer><button onClick={() => onUpdate({ ...word, status: word.status === "learning" ? "mastered" : "learning" })}>{word.status === "mastered" ? "✓ 암기 완료" : "학습 중"}</button><span>정답 {word.correct_count} · 오답 {word.incorrect_count}</span><button className={`danger ${confirmDeleteId === word.id ? "confirm" : ""}`} onClick={() => { if (confirmDeleteId === word.id) { onDelete(word.id); setConfirmDeleteId(null); } else setConfirmDeleteId(word.id); }}>{confirmDeleteId === word.id ? "정말 삭제" : "삭제"}</button></footer></article>)}</div>{!filtered.length && <div className="empty-state"><b>{words.length ? "검색 결과가 없어요." : "아직 저장한 단어가 없어요."}</b><p>본문에서 모르는 단어를 드래그하면 여기에 쌓입니다.</p><button className="primary-button" onClick={onStudy}>본문으로 가기</button></div>}</main>;
+  return <main className="tool-page">
+    <div className="tool-heading">
+      <div><span className="eyebrow">MY VOCABULARY</span><h1>단어장</h1><p>드래그해 저장한 뜻과 원문을 함께 복습하세요.</p></div>
+      <div className="export-controls"><label><span>내보낼 내용</span><select value={exportMode} onChange={(event) => setExportMode(event.target.value as "full" | "compact")}><option value="full">전체 정보</option><option value="compact">단어 + 뜻만</option></select></label><button className="outline-button" onClick={exportExcel} disabled={!words.length}>↓ Excel 내보내기</button></div>
+    </div>
+    <div className="filter-bar"><input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="단어 또는 뜻 검색" /><span>{filtered.length} WORDS</span></div>
+    <div className="word-list">{filtered.map((word) => <article className="word-card" key={word.id}>
+      <div className="word-main"><span className={`status-dot ${word.status}`} /><div><input className="word-title" value={word.word} onChange={(e) => onUpdate({ ...word, word: e.target.value })} /><input className="word-meaning" value={word.meaning} onChange={(e) => onUpdate({ ...word, meaning: e.target.value })} /></div></div>
+      <blockquote>{word.source_sentence}<small>{word.translation}</small></blockquote>
+      <textarea value={word.note} onChange={(e) => onUpdate({ ...word, note: e.target.value })} placeholder="암기 팁이나 예문 메모" />
+      <footer><button onClick={() => onUpdate({ ...word, status: word.status === "learning" ? "mastered" : "learning" })}>{word.status === "mastered" ? "✓ 암기 완료" : "학습 중"}</button><span>정답 {word.correct_count} · 오답 {word.incorrect_count}</span>{confirmDeleteId === word.id ? <div className="word-delete-confirm" role="alert"><span>정말 삭제하시겠습니까?</span><button onClick={() => setConfirmDeleteId(null)}>취소</button><button className="danger confirm" onClick={() => { onDelete(word.id); setConfirmDeleteId(null); }}>삭제</button></div> : <button className="danger" onClick={() => setConfirmDeleteId(word.id)}>삭제</button>}</footer>
+    </article>)}</div>
+    {!filtered.length && <div className="empty-state"><b>{words.length ? "검색 결과가 없어요." : "아직 저장한 단어가 없어요."}</b><p>본문에서 모르는 단어를 드래그하면 여기에 쌓입니다.</p><button className="primary-button" onClick={onStudy}>본문으로 가기</button></div>}
+  </main>;
 }
 
-function Quiz({ doc, words, onResult }: { doc: StudyDocument; words: VocabularyItem[]; onResult: (id: string | undefined, correct: boolean) => void }) {
+function Quiz({ doc, words, progress, onResult }: { doc: StudyDocument; words: VocabularyItem[]; progress: StudyProgress; onResult: (id: string | undefined, correct: boolean) => void }) {
   const [mode, setMode] = useState<QuizMode>("comprehension");
-  const [index, setIndex] = useState(0); const [picked, setPicked] = useState<number | null>(null); const [score, setScore] = useState(0); const [done, setDone] = useState(false);
+  const [index, setIndex] = useState(0);
+  const [picked, setPicked] = useState<number | null>(null);
+  const [score, setScore] = useState(0);
+  const [done, setDone] = useState(false);
+  const [orderingScope, setOrderingScope] = useState<OrderingScope>("all");
+  const [selectedSentenceIds, setSelectedSentenceIds] = useState<number[]>([]);
+  const [shortenLongSentence, setShortenLongSentence] = useState(true);
+  const [orderedTokenIds, setOrderedTokenIds] = useState<string[]>([]);
+  const [orderingSubmitted, setOrderingSubmitted] = useState(false);
+  const [orderingCorrect, setOrderingCorrect] = useState(false);
+
   const questions = useMemo<QuizQuestion[]>(() => {
-    if (mode === "comprehension") return doc.analysis.questions.map((q: ReadingQuestion) => ({ prompt: q.question, options: q.options, answer: q.answer, explanation: q.explanation }));
+    if (mode === "comprehension") return doc.analysis.questions.map((q: ReadingQuestion) => ({ kind: "choice", prompt: q.question, options: q.options, answer: q.answer, explanation: q.explanation }));
+    if (mode === "ordering") {
+      const targetSentences = orderingScope === "all"
+        ? doc.analysis.sentences
+        : orderingScope === "difficult"
+          ? doc.analysis.sentences.filter((sentence) => progress.bookmarked_sentence_ids.includes(sentence.id))
+          : doc.analysis.sentences.filter((sentence) => selectedSentenceIds.includes(sentence.id));
+
+      return targetSentences.flatMap((sentence): OrderingQuizQuestion[] => {
+        const protectedPhrases = [
+          ...sentence.keywords.map((keyword) => keyword.word),
+          ...words.filter((word) => word.sentence_id === sentence.id).map((word) => word.word),
+        ];
+        const exercise = buildOrderingExercise(sentence.english, protectedPhrases, shortenLongSentence);
+        if (exercise.answerTokens.length < 2) return [];
+        return [{ kind: "ordering", prompt: sentence.korean, explanation: exercise.excerpt, sentenceId: sentence.id, answerTokens: exercise.answerTokens, shuffledTokens: exercise.shuffledTokens, shortened: exercise.shortened }];
+      });
+    }
     if (!words.length) return [];
-    if (mode === "meaning") return shuffle(words).slice(0, 10).map((word) => { const alternatives = shuffle(words.filter((item) => item.id !== word.id).map((item) => item.meaning)).slice(0, 3); const options = shuffle([word.meaning, ...alternatives]); return { prompt: `“${word.word}”의 문맥상 뜻은?`, options, answer: options.indexOf(word.meaning), explanation: word.source_sentence, wordId: word.id }; });
-    return shuffle(words).slice(0, 10).map((word) => { const blank = word.source_sentence.replace(new RegExp(`\\b${word.word.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`, "i"), "______"); const alternatives = shuffle(words.filter((item) => item.id !== word.id).map((item) => item.word)).slice(0, 3); const options = shuffle([word.word, ...alternatives]); return { prompt: blank, options, answer: options.indexOf(word.word), explanation: `${word.word} — ${word.meaning}`, wordId: word.id }; });
-  }, [mode, words, doc]);
-  const reset = (nextMode = mode) => { setMode(nextMode); setIndex(0); setPicked(null); setScore(0); setDone(false); };
-  const answer = (choice: number) => { if (picked !== null) return; setPicked(choice); const correct = choice === questions[index].answer; if (correct) setScore((value) => value + 1); onResult(questions[index].wordId, correct); };
-  const next = () => { if (index + 1 >= questions.length) setDone(true); else { setIndex((value) => value + 1); setPicked(null); } };
-  return <main className="tool-page quiz-page"><div className="tool-heading"><div><span className="eyebrow">ACTIVE RECALL</span><h1>학습 퀴즈</h1><p>본문 이해와 저장한 단어를 문제로 확인하세요.</p></div></div><div className="quiz-modes"><button className={mode === "comprehension" ? "active" : ""} onClick={() => reset("comprehension")}>본문 이해</button><button className={mode === "meaning" ? "active" : ""} onClick={() => reset("meaning")}>단어 뜻</button><button className={mode === "cloze" ? "active" : ""} onClick={() => reset("cloze")}>빈칸 완성</button></div>{!questions.length ? <div className="empty-state"><b>단어 퀴즈를 만들 단어가 부족해요.</b><p>본문에서 단어를 4개 이상 저장해 보세요.</p></div> : done ? <div className="result-card"><span>RESULT</span><strong>{score} / {questions.length}</strong><p>{score === questions.length ? "완벽해요!" : "틀린 문제를 단어장에서 다시 확인해 보세요."}</p><button className="primary-button" onClick={() => reset()}>다시 풀기</button></div> : <section className="quiz-card"><header><span>{index + 1} / {questions.length}</span><div><i style={{ width: `${((index + 1) / questions.length) * 100}%` }} /></div><b>{score} correct</b></header><h2>{questions[index].prompt}</h2><div className="options">{questions[index].options.map((option, optionIndex) => <button key={`${option}-${optionIndex}`} className={picked === null ? "" : optionIndex === questions[index].answer ? "correct" : optionIndex === picked ? "wrong" : "muted"} onClick={() => answer(optionIndex)}><span>{String.fromCharCode(65 + optionIndex)}</span>{option}</button>)}</div>{picked !== null && <div className="answer-note"><b>{picked === questions[index].answer ? "정답입니다" : "정답을 확인하세요"}</b><p>{questions[index].explanation}</p><button onClick={next}>{index + 1 === questions.length ? "결과 보기" : "다음 문제 →"}</button></div>}</section>}</main>;
+    if (mode === "meaning") return shuffle(words).slice(0, 10).map((word) => {
+      const alternatives = shuffle(words.filter((item) => item.id !== word.id).map((item) => item.meaning)).slice(0, 3);
+      const options = shuffle([word.meaning, ...alternatives]);
+      return { kind: "choice", prompt: `“${word.word}”의 뜻은?`, options, answer: options.indexOf(word.meaning), explanation: word.source_sentence, wordId: word.id };
+    });
+    return shuffle(words).slice(0, 10).map((word) => {
+      const blank = word.source_sentence.replace(new RegExp(`\\b${word.word.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`, "i"), "______");
+      const alternatives = shuffle(words.filter((item) => item.id !== word.id).map((item) => item.word)).slice(0, 3);
+      const options = shuffle([word.word, ...alternatives]);
+      return { kind: "choice", prompt: blank, options, answer: options.indexOf(word.word), explanation: `${word.word} — ${word.meaning}`, wordId: word.id };
+    });
+  }, [mode, words, doc, orderingScope, selectedSentenceIds, shortenLongSentence, progress.bookmarked_sentence_ids]);
+
+  const clearAnswer = () => { setPicked(null); setOrderedTokenIds([]); setOrderingSubmitted(false); setOrderingCorrect(false); };
+  const reset = (nextMode = mode) => { setMode(nextMode); setIndex(0); setScore(0); setDone(false); clearAnswer(); };
+  const updateOrderingScope = (scope: OrderingScope) => { setOrderingScope(scope); setIndex(0); setScore(0); setDone(false); clearAnswer(); };
+  const updateSentenceSelection = (sentenceId: number) => {
+    setSelectedSentenceIds((current) => current.includes(sentenceId) ? current.filter((id) => id !== sentenceId) : [...current, sentenceId]);
+    setIndex(0); setScore(0); setDone(false); clearAnswer();
+  };
+  const answer = (choice: number) => {
+    const question = questions[index];
+    if (picked !== null || question?.kind !== "choice") return;
+    setPicked(choice);
+    const correct = choice === question.answer;
+    if (correct) setScore((value) => value + 1);
+    onResult(question.wordId, correct);
+  };
+  const submitOrdering = () => {
+    const question = questions[index];
+    if (question?.kind !== "ordering" || orderingSubmitted || orderedTokenIds.length !== question.answerTokens.length) return;
+    const answerTokens = orderedTokenIds.map((id) => question.shuffledTokens.find((token) => token.id === id)?.text ?? "");
+    const correct = answerTokens.every((token, tokenIndex) => token === question.answerTokens[tokenIndex]);
+    setOrderingCorrect(correct);
+    setOrderingSubmitted(true);
+    if (correct) setScore((value) => value + 1);
+  };
+  const next = () => {
+    if (index + 1 >= questions.length) setDone(true);
+    else { setIndex((value) => value + 1); clearAnswer(); }
+  };
+
+  const question = questions[index];
+  const selectedOrderingTokens = question?.kind === "ordering" ? orderedTokenIds.map((id) => question.shuffledTokens.find((token) => token.id === id)).filter((token): token is { id: string; text: string } => Boolean(token)) : [];
+  const availableOrderingTokens = question?.kind === "ordering" ? question.shuffledTokens.filter((token) => !orderedTokenIds.includes(token.id)) : [];
+  const emptyTitle = mode === "ordering" ? orderingScope === "difficult" ? "어려움 체크한 문장이 없어요." : "출제할 문장을 선택해 주세요." : "단어 퀴즈를 만들 단어가 부족해요.";
+  const emptyDescription = mode === "ordering" ? orderingScope === "difficult" ? "본문 학습에서 문장에 ‘어려움 체크’를 표시해 주세요." : "직접 선택에서 한 문장 이상 골라 주세요." : "본문에서 단어를 4개 이상 저장해 보세요.";
+
+  return <main className="tool-page quiz-page">
+    <div className="tool-heading"><div><span className="eyebrow">ACTIVE RECALL</span><h1>학습 퀴즈</h1><p>본문 이해, 단어 뜻, 빈칸과 어순 배열을 연습하세요.</p></div></div>
+    <div className="quiz-modes"><button className={mode === "comprehension" ? "active" : ""} onClick={() => reset("comprehension")}>본문 이해</button><button className={mode === "meaning" ? "active" : ""} onClick={() => reset("meaning")}>단어 뜻</button><button className={mode === "cloze" ? "active" : ""} onClick={() => reset("cloze")}>빈칸 완성</button><button className={mode === "ordering" ? "active" : ""} onClick={() => reset("ordering")}>어순 배열</button></div>
+    {mode === "ordering" && <section className="ordering-setup">
+      <div className="ordering-setting"><strong>출제 범위</strong><div className="scope-buttons"><button className={orderingScope === "all" ? "active" : ""} onClick={() => updateOrderingScope("all")}>전체 문장</button><button className={orderingScope === "difficult" ? "active" : ""} onClick={() => updateOrderingScope("difficult")}>어려움 체크</button><button className={orderingScope === "selected" ? "active" : ""} onClick={() => updateOrderingScope("selected")}>직접 선택</button></div></div>
+      <label className="excerpt-toggle"><input type="checkbox" checked={shortenLongSentence} onChange={(event) => { setShortenLongSentence(event.target.checked); reset("ordering"); }} /><span><b>긴 문장은 핵심 일부만 출제</b><small>짧은 문장은 전체를 사용하고, 긴 문장은 의미 있는 구간으로 나눕니다.</small></span></label>
+      {orderingScope === "difficult" && <p className="scope-summary">어려움 체크한 문장 {progress.bookmarked_sentence_ids.length}개를 출제합니다.</p>}
+      {orderingScope === "selected" && <div className="sentence-picker"><header><span>원하는 문장을 골라 주세요.</span><div><button onClick={() => { setSelectedSentenceIds(doc.analysis.sentences.map((sentence) => sentence.id)); reset("ordering"); }}>전체 선택</button><button onClick={() => { setSelectedSentenceIds([]); reset("ordering"); }}>선택 해제</button></div></header>{doc.analysis.sentences.map((sentence) => <label key={sentence.id}><input type="checkbox" checked={selectedSentenceIds.includes(sentence.id)} onChange={() => updateSentenceSelection(sentence.id)} /><span><b>{sentence.id}</b>{sentence.english}</span></label>)}</div>}
+    </section>}
+    {!questions.length ? <div className="empty-state"><b>{emptyTitle}</b><p>{emptyDescription}</p></div> : done ? <div className="result-card"><span>RESULT</span><strong>{score} / {questions.length}</strong><p>{score === questions.length ? "완벽해요!" : mode === "ordering" ? "틀린 문장은 본문 어순과 함께 다시 확인해 보세요." : "틀린 문제를 단어장에서 다시 확인해 보세요."}</p><button className="primary-button" onClick={() => reset()}>다시 풀기</button></div> : question?.kind === "ordering" ? <section className="quiz-card ordering-card">
+      <header><span>{index + 1} / {questions.length}</span><div><i style={{ width: `${((index + 1) / questions.length) * 100}%` }} /></div><b>{score} correct</b></header>
+      <div className="ordering-prompt"><span>{question.shortened ? "긴 문장 일부 출제" : "문장 전체 출제"}</span><h2>영어 어순에 맞게 배열하세요.</h2><p>{question.prompt}</p></div>
+      <div className={`ordering-answer ${orderingSubmitted ? orderingCorrect ? "correct" : "wrong" : ""}`}>{selectedOrderingTokens.length ? selectedOrderingTokens.map((token) => <button key={token.id} disabled={orderingSubmitted} onClick={() => setOrderedTokenIds((ids) => ids.filter((id) => id !== token.id))}>{token.text}</button>) : <span>아래 단어를 순서대로 선택하세요.</span>}</div>
+      <div className="ordering-bank">{availableOrderingTokens.map((token) => <button key={token.id} disabled={orderingSubmitted} onClick={() => setOrderedTokenIds((ids) => [...ids, token.id])}>{token.text}</button>)}</div>
+      {!orderingSubmitted ? <div className="ordering-actions"><button onClick={() => setOrderedTokenIds([])} disabled={!orderedTokenIds.length}>초기화</button><button className="primary-button" onClick={submitOrdering} disabled={orderedTokenIds.length !== question.answerTokens.length}>채점하기</button></div> : <div className="answer-note"><b>{orderingCorrect ? "정답입니다" : "정답을 확인하세요"}</b><p>{question.answerTokens.join(" ")}</p><button onClick={next}>{index + 1 === questions.length ? "결과 보기" : "다음 문제 →"}</button></div>}
+    </section> : question?.kind === "choice" ? <section className="quiz-card"><header><span>{index + 1} / {questions.length}</span><div><i style={{ width: `${((index + 1) / questions.length) * 100}%` }} /></div><b>{score} correct</b></header><h2>{question.prompt}</h2><div className="options">{question.options.map((option, optionIndex) => <button key={`${option}-${optionIndex}`} className={picked === null ? "" : optionIndex === question.answer ? "correct" : optionIndex === picked ? "wrong" : "muted"} onClick={() => answer(optionIndex)}><span>{String.fromCharCode(65 + optionIndex)}</span>{option}</button>)}</div>{picked !== null && <div className="answer-note"><b>{picked === question.answer ? "정답입니다" : "정답을 확인하세요"}</b><p>{question.explanation}</p><button onClick={next}>{index + 1 === questions.length ? "결과 보기" : "다음 문제 →"}</button></div>}</section> : null}
+  </main>;
 }
 
 type AppProps = {
@@ -541,5 +691,5 @@ export default function App({
 
   if (loading) return <div className="loading-screen"><Logo /><p>내 학습실을 여는 중…</p></div>;
   if (configured && !session) return <AuthScreen />;
-  return <div className="app-shell"><header className="topbar"><button className="brand-button" onClick={() => setView("library")}><Logo /></button><nav><button className={view === "library" ? "active" : ""} onClick={() => setView("library")}>내 본문</button><button className={view === "study" ? "active" : ""} disabled={!current} onClick={() => setView("study")}>본문 학습</button><button className={view === "words" ? "active" : ""} disabled={!current} onClick={() => setView("words")}>단어장</button><button className={view === "quiz" ? "active" : ""} disabled={!current} onClick={() => setView("quiz")}>퀴즈</button></nav><div className="account-area">{!configured && <span className="demo-badge">DEMO</span>}<span>{session?.user.email ?? "샘플 학습"}</span>{session && <button onClick={() => supabase?.auth.signOut()}>로그아웃</button>}</div></header>{view === "library" && <Library documents={documents} onOpen={openDocument} onUpload={() => setView("upload")} />}{view === "upload" && session && <UploadPanel userId={session.user.id} onCreated={(doc) => { setDocuments((items) => [doc, ...items]); void openDocument(doc); }} onCancel={() => setView("library")} />}{current && view === "study" && <StudyView doc={current} words={words} progress={progress} onSaveWord={saveWord} onDeleteWord={deleteWord} onProgress={saveProgress} onView={setView} />}{current && view === "words" && <Wordbook words={words} onUpdate={updateWord} onDelete={deleteWord} onStudy={() => setView("study")} />}{current && view === "quiz" && <Quiz doc={current} words={words} onResult={quizResult} />}</div>;
+  return <div className="app-shell"><header className="topbar"><button className="brand-button" onClick={() => setView("library")}><Logo /></button><nav><button className={view === "library" ? "active" : ""} onClick={() => setView("library")}>내 본문</button><button className={view === "study" ? "active" : ""} disabled={!current} onClick={() => setView("study")}>본문 학습</button><button className={view === "words" ? "active" : ""} disabled={!current} onClick={() => setView("words")}>단어장</button><button className={view === "quiz" ? "active" : ""} disabled={!current} onClick={() => setView("quiz")}>퀴즈</button></nav><div className="account-area">{!configured && <span className="demo-badge">DEMO</span>}<span>{session?.user.email ?? "샘플 학습"}</span>{session && <button onClick={() => supabase?.auth.signOut()}>로그아웃</button>}</div></header>{view === "library" && <Library documents={documents} onOpen={openDocument} onUpload={() => setView("upload")} />}{view === "upload" && session && <UploadPanel userId={session.user.id} onCreated={(doc) => { setDocuments((items) => [doc, ...items]); void openDocument(doc); }} onCancel={() => setView("library")} />}{current && view === "study" && <StudyView doc={current} words={words} progress={progress} onSaveWord={saveWord} onDeleteWord={deleteWord} onProgress={saveProgress} onView={setView} />}{current && view === "words" && <Wordbook words={words} onUpdate={updateWord} onDelete={deleteWord} onStudy={() => setView("study")} />}{current && view === "quiz" && <Quiz doc={current} words={words} progress={progress} onResult={quizResult} />}</div>;
 }
