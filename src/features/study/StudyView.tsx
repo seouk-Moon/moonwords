@@ -8,9 +8,11 @@ import { HighlightedEnglish } from "./HighlightedEnglish";
 export function StudyView({ doc, words, progress, onSaveWord, onDeleteWord, onProgress, onView }: { doc: StudyDocument; words: VocabularyItem[]; progress: StudyProgress; onSaveWord: (word: Omit<VocabularyItem, "id" | "user_id" | "created_at" | "updated_at">) => Promise<void>; onDeleteWord: (id: string) => Promise<void>; onProgress: (next: StudyProgress) => void; onView: (view: View) => void }) {
   const [selected, setSelected] = useState<SelectedWord | null>(null);
   const [loadingMeaning, setLoadingMeaning] = useState(false);
+  const [lookupHighlight, setLookupHighlight] = useState<{ word: string; sentenceId: number; loading: boolean } | null>(null);
   const [listeningState, setListeningState] = useState<"idle" | "playing" | "paused">("idle");
   const [speakingSentenceId, setSpeakingSentenceId] = useState<number | null>(null);
   const articleRef = useRef<HTMLDivElement>(null);
+  const popoverRef = useRef<HTMLDivElement>(null);
   const meaningCache = useRef(new Map<string, string>());
   const activeLookup = useRef("");
   const listeningRun = useRef(0);
@@ -39,6 +41,7 @@ export function StudyView({ doc, words, progress, onSaveWord, onDeleteWord, onPr
     setSelected({ word, sentenceId, meaning: immediateMeaning, savedId: saved?.id, x: Math.max(12, Math.min(rect.left, window.innerWidth - 322)), y: Math.max(12, Math.min(rect.bottom + 10, window.innerHeight - 220)) });
     if (!immediateMeaning && supabase) {
       activeLookup.current = cacheKey;
+      setLookupHighlight({ word, sentenceId, loading: true });
       setLoadingMeaning(true);
       try {
         const response = await supabase.functions.invoke("process-document", { body: { action: "define", word, sentence: sentence.english, translation: sentence.korean } });
@@ -47,7 +50,13 @@ export function StudyView({ doc, words, progress, onSaveWord, onDeleteWord, onPr
           setSelected((current) => current && current.sentenceId === sentenceId && current.word === word ? { ...current, meaning: response.data.meaning } : current);
         }
       } finally {
-        if (activeLookup.current === cacheKey) setLoadingMeaning(false);
+        if (activeLookup.current === cacheKey) {
+          setLoadingMeaning(false);
+          setLookupHighlight((current) => current && current.sentenceId === sentenceId && current.word === word ? { ...current, loading: false } : current);
+          window.setTimeout(() => {
+            setLookupHighlight((current) => current && current.sentenceId === sentenceId && current.word === word && !current.loading ? null : current);
+          }, 1800);
+        }
       }
     }
   }, [sentences, words]);
@@ -114,6 +123,18 @@ export function StudyView({ doc, words, progress, onSaveWord, onDeleteWord, onPr
     window.speechSynthesis.cancel();
   }, [doc.id]);
 
+  useEffect(() => {
+    if (!selected) return;
+    const closeOnOutsidePointer = (event: PointerEvent) => {
+      const target = event.target as Node | null;
+      if (!target || popoverRef.current?.contains(target)) return;
+      setSelected(null);
+      window.getSelection()?.removeAllRanges();
+    };
+    document.addEventListener("pointerdown", closeOnOutsidePointer, true);
+    return () => document.removeEventListener("pointerdown", closeOnOutsidePointer, true);
+  }, [selected]);
+
   const toggle = (key: "understood_sentence_ids" | "bookmarked_sentence_ids", id: number) => {
     const current = progress[key];
     onProgress({ ...progress, [key]: current.includes(id) ? current.filter((value) => value !== id) : [...current, id], last_studied_at: new Date().toISOString() });
@@ -139,7 +160,7 @@ export function StudyView({ doc, words, progress, onSaveWord, onDeleteWord, onPr
         <h1>{doc.title}</h1>
         <p>{doc.analysis.summary}</p>
         <div className="study-stats">
-          <span>{sentences.length} 문장</span><span>{understood.length} 이해 완료</span><span>{difficultSentences.length} 어려움</span><span>{words.length} 저장 단어</span><span>{doc.analysis.level}</span>
+          <span>{sentences.length} 문장</span><span>{understood.length} 이해 완료</span><span>{difficultSentences.length} 어려운 문장</span><span>{words.length} 저장 단어</span><span>{doc.analysis.level}</span>
         </div>
       </section>
       <nav className="study-nav"><button className="active">본문 학습</button><button onClick={() => onView("words")}>단어장 <b>{words.length}</b></button><button onClick={() => onView("quiz")}>퀴즈</button></nav>
@@ -152,15 +173,15 @@ export function StudyView({ doc, words, progress, onSaveWord, onDeleteWord, onPr
             {sentences.filter((sentence) => sentence.paragraph === section.id).map((sentence) => {
               const sentenceWords = words.filter((word) => word.sentence_id === sentence.id);
               return <div className={`sentence-pair ${understood.includes(sentence.id) ? "understood" : ""} ${difficultSentences.includes(sentence.id) ? "difficult" : ""} ${speakingSentenceId === sentence.id ? "listening" : ""}`} data-sentence={sentence.id} key={sentence.id}>
-                <div className="sentence-number">{sentence.id}</div>
-                <div className="sentence-copy"><p className="english"><HighlightedEnglish text={sentence.english} words={sentenceWords} onOpen={openSavedWord} /></p><p className="korean">{sentence.korean}</p><div className="sentence-actions"><button onClick={() => speak(sentence.english)}>◉ 듣기</button><button onClick={() => toggle("understood_sentence_ids", sentence.id)}>{understood.includes(sentence.id) ? "✓ 이해함" : "○ 이해 체크"}</button><button onClick={() => toggle("bookmarked_sentence_ids", sentence.id)}>{difficultSentences.includes(sentence.id) ? "⚑ 어려움 해제" : "⚐ 어려움 체크"}</button></div></div>
+                <div className="sentence-number">{sentence.marked && <span className="source-mark" title="원본 밑줄 표시">★</span>}{sentence.id}</div>
+                <div className="sentence-copy"><p className="english"><HighlightedEnglish text={sentence.english} words={sentenceWords} onOpen={openSavedWord} transientWord={lookupHighlight?.sentenceId === sentence.id ? lookupHighlight.word : undefined} transientLoading={lookupHighlight?.sentenceId === sentence.id && lookupHighlight.loading} /></p><p className="korean">{sentence.korean}</p><div className="sentence-actions"><button onClick={() => speak(sentence.english)}>◉ 듣기</button><button onClick={() => toggle("understood_sentence_ids", sentence.id)}>{understood.includes(sentence.id) ? "✓ 이해함" : "○ 이해 체크"}</button><button onClick={() => toggle("bookmarked_sentence_ids", sentence.id)}>{difficultSentences.includes(sentence.id) ? "⚑ 어려운 문장 해제" : "⚐ 어려운 문장 체크"}</button></div></div>
               </div>;
             })}
           </section>)}
         </article>
         <aside className="insight-panel" onScroll={() => setSelected(null)}><span className="section-kicker">READING MAP</span><h3>본문 구조</h3><p>{doc.analysis.structure}</p><div className="structure-list">{doc.analysis.sections.map((section) => <div key={section.id}><b>{section.id}</b><span>{section.label}<small>{section.role}</small></span></div>)}</div><div className="progress-ring"><strong>{Math.round((understood.length / Math.max(sentences.length, 1)) * 100)}%</strong><span>이해 완료</span></div></aside>
       </div>
-      {selected && <div className="selection-popover" style={{ left: selected.x, top: selected.y }}>
+      {selected && <div ref={popoverRef} className="selection-popover" style={{ left: selected.x, top: selected.y }}>
         <small>{selected.savedId ? "SAVED WORD" : "MEANING"}</small>
         <strong>{selected.word}</strong>
         <input value={loadingMeaning ? "뜻 찾는 중…" : selected.meaning} disabled={loadingMeaning} onChange={(e) => setSelected({ ...selected, meaning: e.target.value })} placeholder="뜻을 입력하세요" />

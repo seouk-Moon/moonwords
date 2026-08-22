@@ -4,7 +4,7 @@ import { demoDocument } from "../demo";
 import { supabase } from "../lib/supabase";
 import { uid } from "../lib/app-utils";
 import type { View } from "../app-types";
-import type { StudyDocument, StudyProgress, VocabularyItem } from "../types";
+import type { DocumentFolder, StudyDocument, StudyProgress, VocabularyItem } from "../types";
 
 const createDemoProgress = (): StudyProgress => ({
   user_id: "demo-user",
@@ -19,6 +19,7 @@ export function useStudyWorkspace(configured: boolean) {
   const [session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState(configured);
   const [documents, setDocuments] = useState<StudyDocument[]>(configured ? [] : [demoDocument]);
+  const [folders, setFolders] = useState<DocumentFolder[]>([]);
   const [current, setCurrent] = useState<StudyDocument | null>(configured ? null : demoDocument);
   const [words, setWords] = useState<VocabularyItem[]>([]);
   const [progress, setProgress] = useState<StudyProgress>(createDemoProgress);
@@ -36,13 +37,14 @@ export function useStudyWorkspace(configured: boolean) {
 
   useEffect(() => {
     if (!supabase || !session) return;
-    void supabase
-      .from("documents")
-      .select("*")
-      .order("created_at", { ascending: false })
-      .then((result) => {
-        if (!result.error) setDocuments(result.data as StudyDocument[]);
-      });
+    void Promise.all([
+      supabase.from("documents").select("*").order("created_at", { ascending: false }),
+      supabase.from("document_folders").select("*").order("created_at", { ascending: true }),
+    ]).then(([documentResult, folderResult]) => {
+      if (!documentResult.error) setDocuments(documentResult.data as StudyDocument[]);
+      // Older deployments may not have the folder migration yet. Keep the rest of the app usable.
+      if (!folderResult.error) setFolders(folderResult.data as DocumentFolder[]);
+    });
   }, [session]);
 
   const openDocument = useCallback(async (doc: StudyDocument) => {
@@ -148,10 +150,66 @@ export function useStudyWorkspace(configured: boolean) {
     setCurrent((item) => (item?.id === doc.id ? doc : item));
   };
 
+  const createFolder = async (name: string) => {
+    const trimmed = name.trim();
+    if (!trimmed) throw new Error("폴더 이름을 입력해 주세요.");
+    if (folders.some((folder) => folder.name.toLowerCase() === trimmed.toLowerCase())) {
+      throw new Error("같은 이름의 폴더가 이미 있습니다.");
+    }
+
+    if (!supabase || !session) {
+      const now = new Date().toISOString();
+      const folder: DocumentFolder = { id: uid(), user_id: "demo-user", name: trimmed, created_at: now, updated_at: now };
+      setFolders((items) => [...items, folder]);
+      return folder;
+    }
+
+    const result = await supabase
+      .from("document_folders")
+      .insert({ user_id: session.user.id, name: trimmed })
+      .select()
+      .single();
+    if (result.error) throw new Error(result.error.message.includes("document_folders") ? "폴더 기능 migration을 먼저 적용해 주세요." : result.error.message);
+    const folder = result.data as DocumentFolder;
+    setFolders((items) => [...items, folder]);
+    return folder;
+  };
+
+  const renameFolder = async (folderId: string, name: string) => {
+    const trimmed = name.trim();
+    if (!trimmed) throw new Error("폴더 이름을 입력해 주세요.");
+    setFolders((items) => items.map((folder) => folder.id === folderId ? { ...folder, name: trimmed, updated_at: new Date().toISOString() } : folder));
+    if (supabase && session) {
+      const result = await supabase.from("document_folders").update({ name: trimmed, updated_at: new Date().toISOString() }).eq("id", folderId);
+      if (result.error) throw new Error(result.error.message);
+    }
+  };
+
+  const deleteFolder = async (folderId: string) => {
+    setFolders((items) => items.filter((folder) => folder.id !== folderId));
+    setDocuments((items) => items.map((doc) => doc.folder_id === folderId ? { ...doc, folder_id: null } : doc));
+    setCurrent((doc) => doc?.folder_id === folderId ? { ...doc, folder_id: null } : doc);
+    if (supabase && session) {
+      const result = await supabase.from("document_folders").delete().eq("id", folderId);
+      if (result.error) throw new Error(result.error.message);
+    }
+  };
+
+  const moveDocumentToFolder = async (documentId: string, folderId: string | null) => {
+    const update = (doc: StudyDocument) => doc.id === documentId ? { ...doc, folder_id: folderId } : doc;
+    setDocuments((items) => items.map(update));
+    setCurrent((doc) => doc ? update(doc) : doc);
+    if (supabase && session) {
+      const result = await supabase.from("documents").update({ folder_id: folderId, updated_at: new Date().toISOString() }).eq("id", documentId);
+      if (result.error) throw new Error(result.error.message.includes("folder_id") ? "폴더 기능 migration을 먼저 적용해 주세요." : result.error.message);
+    }
+  };
+
   return {
     session,
     loading,
     documents,
+    folders,
     current,
     words,
     progress,
@@ -165,5 +223,9 @@ export function useStudyWorkspace(configured: boolean) {
     quizResult,
     addDocumentAndOpen,
     applyUpdatedDocument,
+    createFolder,
+    renameFolder,
+    deleteFolder,
+    moveDocumentToFolder,
   };
 }

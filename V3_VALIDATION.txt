@@ -1,0 +1,11 @@
+MoonWords v3 validation - 2026-08-23
+
+- TypeScript/TSX static parse/type pass with local dependency stubs: PASS (0 internal errors)
+- modern-study.css brace balance: PASS
+- app/globals.css brace balance: PASS
+- ordering partial-sentence context smoke test: PASS
+- process-document Edge Function SHA-256 matches v2 exactly:
+  a2dae6628a6cf11fca2ce7e4df47c3b00b48a4ba62b88dd3d85daf0748e451af
+- package-lock.json unchanged from v2
+
+Note: full npm/Vite build could not be completed in this execution environment because dependency installation timed out. Run `npm ci` and `npm run build:pages` in the normal project environment before production deployment.

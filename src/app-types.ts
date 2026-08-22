@@ -48,6 +48,10 @@ export type OrderingQuizQuestion = {
   explanation: string;
   contextBefore?: string;
   contextAfter?: string;
+  /** 같은 긴 문장에서 출제 구간 바로 앞에 제외된 부분 */
+  sameSentenceBefore?: string;
+  /** 같은 긴 문장에서 출제 구간 바로 뒤에 제외된 부분 */
+  sameSentenceAfter?: string;
   sentenceId: number;
   answerTokens: string[];
   shuffledTokens: Array<{ id: string; text: string }>;

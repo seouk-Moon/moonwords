@@ -9,6 +9,8 @@ export type AnalysisSentence = {
   english: string;
   korean: string;
   keywords: AnalysisKeyword[];
+  /** 원본 파일에서 밑줄 표시가 있던 문장 */
+  marked?: boolean;
 };
 
 export type AnalysisSection = {
@@ -35,9 +37,18 @@ export type DocumentAnalysis = {
   cloze_questions?: ReadingQuestion[];
 };
 
+export type DocumentFolder = {
+  id: string;
+  user_id: string;
+  name: string;
+  created_at: string;
+  updated_at: string;
+};
+
 export type StudyDocument = {
   id: string;
   user_id: string;
+  folder_id?: string | null;
   title: string;
   source_name: string | null;
   source_type: string;

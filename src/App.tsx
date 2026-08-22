@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import { cloudConfigured, configureSupabase, supabase } from "./lib/supabase";
 import { AppHeader } from "./components/layout/AppHeader";
 import { MobileBottomNav } from "./components/layout/MobileBottomNav";
@@ -22,6 +23,7 @@ type AppProps = {
 export default function App({ supabaseUrl, supabasePublishableKey }: AppProps = {}) {
   configureSupabase(supabaseUrl, supabasePublishableKey);
   const configured = cloudConfigured;
+  const [uploadFolderId, setUploadFolderId] = useState<string | null>(null);
 
   const workspace = useStudyWorkspace(configured);
   const quizGeneration = useQuizGeneration({
@@ -62,14 +64,20 @@ export default function App({ supabaseUrl, supabasePublishableKey }: AppProps = 
       {workspace.view === "library" && (
         <LibraryPage
           documents={workspace.documents}
+          folders={workspace.folders}
           onOpen={workspace.openDocument}
-          onUpload={() => workspace.setView("upload")}
+          onUpload={(folderId = null) => { setUploadFolderId(folderId); workspace.setView("upload"); }}
+          onCreateFolder={workspace.createFolder}
+          onRenameFolder={workspace.renameFolder}
+          onDeleteFolder={workspace.deleteFolder}
+          onMoveDocument={workspace.moveDocumentToFolder}
         />
       )}
 
       {workspace.view === "upload" && workspace.session && (
         <UploadPanel
           userId={workspace.session.user.id}
+          folderId={uploadFolderId}
           onCreated={workspace.addDocumentAndOpen}
           onCancel={() => workspace.setView("library")}
         />

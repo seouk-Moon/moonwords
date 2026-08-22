@@ -4,6 +4,8 @@ const escapeRegExp = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, "\\
 
 export type OrderingExercise = {
   excerpt: string;
+  sameSentenceBefore?: string;
+  sameSentenceAfter?: string;
   answerTokens: string[];
   shuffledTokens: Array<{ id: string; text: string }>;
   shortened: boolean;
@@ -73,10 +75,20 @@ export const buildOrderingExercise = (
   protectedPhrases: string[] = [],
   shortenLongSentence = true,
 ): OrderingExercise => {
-  const excerpt = chooseOrderingExcerpt(sentence, shortenLongSentence);
+  const normalizedSentence = sentence.replace(/\s+/g, " ").trim();
+  const excerpt = chooseOrderingExcerpt(normalizedSentence, shortenLongSentence);
+  const excerptIndex = normalizedSentence.indexOf(excerpt);
+  const sameSentenceBefore = excerptIndex > 0
+    ? normalizedSentence.slice(0, excerptIndex).trim()
+    : undefined;
+  const sameSentenceAfter = excerptIndex >= 0 && excerptIndex + excerpt.length < normalizedSentence.length
+    ? normalizedSentence.slice(excerptIndex + excerpt.length).trim()
+    : undefined;
   const answerTokens = tokenizeOrderingSentence(excerpt, protectedPhrases);
   return {
     excerpt,
+    sameSentenceBefore,
+    sameSentenceAfter,
     answerTokens,
     shuffledTokens: shuffleTokens(answerTokens),
     shortened: excerpt !== sentence.replace(/\s+/g, " ").trim(),
