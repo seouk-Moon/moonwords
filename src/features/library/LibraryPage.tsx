@@ -1,5 +1,7 @@
 import { useMemo, useState } from "react";
 import type { DocumentFolder, StudyDocument } from "../../types";
+import type { LearningAnalyticsSnapshot } from "../progress/learning-analytics";
+import { LearningDashboard } from "../progress/LearningDashboard";
 
 const ALL_FOLDER = "__all__";
 const UNFILED_FOLDER = "__unfiled__";
@@ -13,6 +15,7 @@ type Props = {
   onRenameFolder: (folderId: string, name: string) => Promise<void>;
   onDeleteFolder: (folderId: string) => Promise<void>;
   onMoveDocument: (documentId: string, folderId: string | null) => Promise<void>;
+  learningAnalytics: LearningAnalyticsSnapshot;
 };
 
 const formatDate = (value: string) => new Date(value).toLocaleDateString("ko-KR", {
@@ -30,6 +33,7 @@ export function LibraryPage({
   onRenameFolder,
   onDeleteFolder,
   onMoveDocument,
+  learningAnalytics,
 }: Props) {
   const [selectedFolderId, setSelectedFolderId] = useState<string>(ALL_FOLDER);
   const [folderError, setFolderError] = useState("");
@@ -86,12 +90,14 @@ export function LibraryPage({
     <main className="library-page modern-library">
       <section className="library-dashboard-head">
         <div>
-          <span className="eyebrow">MY LIBRARY</span>
-          <h1>내 본문</h1>
-          <p>본문을 폴더로 정리하고, 이어서 학습할 글을 선택하세요.</p>
+          <span className="eyebrow">MY STUDY</span>
+          <h1>내 학습</h1>
+          <p>이번 주 성장 기록을 확인하고, 이어서 학습할 본문을 선택하세요.</p>
         </div>
         <button className="primary-button new-reading-button" onClick={() => onUpload(defaultUploadFolder)}>＋ 새 본문</button>
       </section>
+
+      <LearningDashboard analytics={learningAnalytics} />
 
       <section className="folder-toolbar" aria-label="본문 폴더">
         <div className="folder-list">

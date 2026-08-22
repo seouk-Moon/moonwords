@@ -1,11 +1,13 @@
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { buildOrderingExercise } from "../../lib/ordering-quiz";
 import { shuffle } from "../../lib/app-utils";
 import type { StudyDocument, StudyProgress, VocabularyItem, ReadingQuestion } from "../../types";
-import type { ChoiceQuizQuestion, ComprehensionScope, FlashcardQuestion, OrderingQuizQuestion, OrderingScope, QuizGenerationJob, QuizGenerationType, QuizMode, QuizQuestion, VocabDirection, VocabFormat, WrittenQuizQuestion } from "../../app-types";
+import type { ChoiceQuizQuestion, ComprehensionScope, FlashcardQuestion, OrderingQuizQuestion, OrderingScope, QuizGenerationJob, QuizGenerationType, QuizMistakeReviewItem, QuizMode, QuizQuestion, VocabDirection, VocabFormat, WrittenQuizQuestion } from "../../app-types";
 import { missedComprehensionKey, readMissedComprehensionIds } from "./quiz-utils";
+import { QuizResult } from "./QuizResult";
+import { OrderingContextExcerpt } from "./OrderingContextExcerpt";
 
-export function Quiz({ doc, words, progress, generationJob, onClose, onGenerate, onProgress, onResult }: { doc: StudyDocument; words: VocabularyItem[]; progress: StudyProgress; generationJob: QuizGenerationJob | null; onClose: () => void; onGenerate: (type: QuizGenerationType, count: number) => void; onProgress: (next: StudyProgress) => void; onResult: (id: string | undefined, correct: boolean) => void }) {
+export function Quiz({ doc, words, progress, generationJob, onClose, onGenerate, onProgress, onResult, onQuestionAnswered, onQuizComplete }: { doc: StudyDocument; words: VocabularyItem[]; progress: StudyProgress; generationJob: QuizGenerationJob | null; onClose: () => void; onGenerate: (type: QuizGenerationType, count: number) => void; onProgress: (next: StudyProgress) => void; onResult: (id: string | undefined, correct: boolean) => void; onQuestionAnswered: (mode: QuizMode, correct: boolean, options?: { wordId?: string; sentenceId?: number }) => void; onQuizComplete: (mode: QuizMode, score: number, questionCount: number) => void }) {
   const [mode, setMode] = useState<QuizMode>("comprehension");
   const [index, setIndex] = useState(0);
   const [picked, setPicked] = useState<number | null>(null);
@@ -13,6 +15,8 @@ export function Quiz({ doc, words, progress, generationJob, onClose, onGenerate,
   const [done, setDone] = useState(false);
   const [started, setStarted] = useState(false);
   const [quizRun, setQuizRun] = useState(0);
+  const [runMistakes, setRunMistakes] = useState<QuizMistakeReviewItem[]>([]);
+  const completedRunRef = useRef<number | null>(null);
 
   const [comprehensionScope, setComprehensionScope] = useState<ComprehensionScope>("all");
   const [missedComprehensionIds, setMissedComprehensionIds] = useState<number[]>(() => readMissedComprehensionIds(progress, doc.analysis.questions.length));
@@ -129,12 +133,18 @@ export function Quiz({ doc, words, progress, generationJob, onClose, onGenerate,
     return [];
   }, [mode, quizWordsSnapshot, doc, orderingScope, selectedSentenceIds, shortenLongSentence, progress.bookmarked_sentence_ids, activeComprehensionIds, vocabDirection, vocabFormat, vocabUseAll, vocabCount, quizRun]);
 
+  useEffect(() => {
+    if (!done || !started || !questions.length || completedRunRef.current === quizRun) return;
+    completedRunRef.current = quizRun;
+    onQuizComplete(mode, score, questions.length);
+  }, [done, started, questions.length, quizRun, mode, score, onQuizComplete]);
+
   const clearAnswer = () => {
     setPicked(null); setOrderedTokenIds([]); setOrderingSubmitted(false); setOrderingCorrect(false);
     flashcardDragCurrent.current = 0;
     setWrittenAnswer(""); setWrittenRevealed(false); setWrittenGraded(null); setFlashcardFlipped(false); setFlashcardDragX(0); setFlashcardRetryCount(0);
   };
-  const clearRun = () => { setIndex(0); setScore(0); setDone(false); clearAnswer(); };
+  const clearRun = () => { setIndex(0); setScore(0); setDone(false); setRunMistakes([]); clearAnswer(); };
   const prepareComprehension = (scope = comprehensionScope, useAll = comprehensionUseAll, count = comprehensionCount) => {
     const allIds = doc.analysis.questions.map((_, questionIndex) => questionIndex);
     const pool = scope === "incorrect" ? missedComprehensionIds.filter((id) => allIds.includes(id)) : allIds;
@@ -165,24 +175,46 @@ export function Quiz({ doc, words, progress, generationJob, onClose, onGenerate,
     setSelectedSentenceIds((current) => current.includes(sentenceId) ? current.filter((id) => id !== sentenceId) : [...current, sentenceId]);
     setQuizRun((value) => value + 1); clearRun();
   };
+  const rememberMistake = (mistake: QuizMistakeReviewItem) => {
+    setRunMistakes((items) => items.some((item) => item.id === mistake.id) ? items : [...items, mistake]);
+  };
   const answer = (choice: number) => {
     const question = questions[index];
     if (picked !== null || question?.kind !== "choice") return;
     setPicked(choice);
     const correct = choice === question.answer;
     if (correct) setScore((value) => value + 1);
+    else rememberMistake({
+      id: `choice:${quizRun}:${index}:${question.wordId ?? question.sourceQuestionId ?? question.prompt}`,
+      prompt: question.prompt,
+      selected: question.options[choice] ?? "",
+      answer: question.options[question.answer] ?? "",
+      explanation: question.explanation,
+    });
     if (question.sourceQuestionId !== undefined) saveMissedComprehensionIds(question.sourceQuestionId, correct);
     onResult(question.wordId, correct);
+    onQuestionAnswered(mode, correct, { wordId: question.wordId });
   };
   const gradeWritten = (correct: boolean) => {
     const question = questions[index];
     if (question?.kind !== "written" || writtenGraded !== null) return;
-    setWrittenGraded(correct); if (correct) setScore((value) => value + 1); onResult(question.wordId, correct);
+    setWrittenGraded(correct);
+    if (correct) setScore((value) => value + 1);
+    else rememberMistake({
+      id: `written:${quizRun}:${index}:${question.wordId}`,
+      prompt: question.prompt,
+      selected: writtenAnswer,
+      answer: question.answerText,
+      explanation: question.explanation,
+    });
+    onResult(question.wordId, correct);
+    onQuestionAnswered(mode, correct, { wordId: question.wordId });
   };
   const gradeFlashcard = (correct: boolean) => {
     const question = questions[index];
     if (question?.kind !== "flashcard" || !flashcardFlipped) return;
     onResult(question.wordId, correct);
+    onQuestionAnswered(mode, correct, { wordId: question.wordId });
     flashcardDragCurrent.current = 0;
     setFlashcardDragX(0);
     if (correct) {
@@ -190,6 +222,13 @@ export function Quiz({ doc, words, progress, generationJob, onClose, onGenerate,
       if (index + 1 >= questions.length) setDone(true);
       else { setIndex((value) => value + 1); clearAnswer(); }
     } else {
+      rememberMistake({
+        id: `flashcard:${quizRun}:${index}:${question.wordId}`,
+        prompt: question.front,
+        selected: "다시 보기",
+        answer: question.back,
+        explanation: question.example,
+      });
       setFlashcardRetryCount((value) => value + 1);
       setFlashcardFlipped(false);
     }
@@ -199,7 +238,16 @@ export function Quiz({ doc, words, progress, generationJob, onClose, onGenerate,
     if (question?.kind !== "ordering" || orderingSubmitted || orderedTokenIds.length !== question.answerTokens.length) return;
     const answerTokens = orderedTokenIds.map((id) => question.shuffledTokens.find((token) => token.id === id)?.text ?? "");
     const correct = answerTokens.every((token, tokenIndex) => token === question.answerTokens[tokenIndex]);
-    setOrderingCorrect(correct); setOrderingSubmitted(true); if (correct) setScore((value) => value + 1);
+    setOrderingCorrect(correct); setOrderingSubmitted(true);
+    onQuestionAnswered(mode, correct, { sentenceId: question.sentenceId });
+    if (correct) setScore((value) => value + 1);
+    else rememberMistake({
+      id: `ordering:${quizRun}:${index}:${question.sentenceId}`,
+      prompt: "영어 어순 배열",
+      selected: answerTokens.join(" "),
+      answer: question.answerTokens.join(" "),
+      explanation: question.explanation,
+    });
   };
   const next = () => {
     if (index + 1 >= questions.length) setDone(true);
@@ -222,6 +270,29 @@ export function Quiz({ doc, words, progress, generationJob, onClose, onGenerate,
     const direction = flashcardDragCurrent.current;
     if (Math.abs(direction) >= 85) gradeFlashcard(direction > 0);
     else { flashcardDragCurrent.current = 0; setFlashcardDragX(0); }
+  };
+  const retryIncorrect = () => {
+    if (mode !== "comprehension" || !missedComprehensionIds.length) return;
+    setComprehensionScope("incorrect");
+    setComprehensionUseAll(true);
+    prepareComprehension("incorrect", true, missedComprehensionIds.length);
+    setStarted(true);
+  };
+  const shuffleAllAgain = () => {
+    if (mode === "comprehension") {
+      setComprehensionScope("all");
+      prepareComprehension("all", comprehensionUseAll, comprehensionCount);
+      setStarted(true);
+      return;
+    }
+    startQuiz();
+  };
+  const returnToQuizHome = () => {
+    setStarted(false);
+    setMode("comprehension");
+    setComprehensionScope("all");
+    setComprehensionUseAll(true);
+    prepareComprehension("all", true, doc.analysis.questions.length);
   };
 
   const question = questions[index];
@@ -265,9 +336,18 @@ export function Quiz({ doc, words, progress, generationJob, onClose, onGenerate,
 
     {started && <div className="quiz-session-toolbar"><span>퀴즈 진행 중 · {questions.length}문제</span><button onClick={() => { setStarted(false); clearRun(); }}>설정 변경</button></div>}
 
-    {started && (!questions.length ? <div className="empty-state"><b>{emptyTitle}</b><p>{emptyDescription}</p></div> : done ? <div className="result-card"><span>RESULT</span><strong>{score} / {questions.length}</strong><p>{score === questions.length ? "완벽해요!" : mode === "comprehension" ? `현재 본문 이해 오답 ${missedComprehensionIds.length}개가 저장되어 있어요.` : mode === "ordering" ? "다시 풀면 문장과 단어 순서가 새롭게 섞입니다." : mode === "flashcard" ? "헷갈린 카드는 다시 보기로 반복해 보세요." : "틀린 단어를 단어장에서 다시 확인해 보세요."}</p><div className="result-actions">{mode === "comprehension" && missedComprehensionIds.length > 0 && <button onClick={() => { setComprehensionScope("incorrect"); setStarted(false); prepareComprehension("incorrect"); }}>오답만 풀기</button>}<button className="primary-button" onClick={startQuiz}>다시 섞어 풀기</button></div></div> : question?.kind === "ordering" ? <section className="quiz-card ordering-card">
+    {started && (!questions.length ? <div className="empty-state"><b>{emptyTitle}</b><p>{emptyDescription}</p></div> : done ? <QuizResult
+      score={score}
+      total={questions.length}
+      summary={score === questions.length && runMistakes.length === 0 ? "완벽해요!" : mode === "comprehension" ? `현재 본문 이해 오답 ${missedComprehensionIds.length}개가 저장되어 있어요.` : mode === "ordering" ? "오답을 확인한 뒤 다시 배열해 보세요." : mode === "flashcard" ? "헷갈렸던 카드는 오답 확인에서 다시 볼 수 있어요." : "틀린 단어와 정답을 바로 확인할 수 있어요."}
+      mistakes={runMistakes}
+      canRetryIncorrect={mode === "comprehension" && missedComprehensionIds.length > 0}
+      onRetryIncorrect={retryIncorrect}
+      onShuffleAll={shuffleAllAgain}
+      onHome={returnToQuizHome}
+    /> : question?.kind === "ordering" ? <section className="quiz-card ordering-card">
       <header><span>{index + 1} / {questions.length}</span><div><i style={{ width: `${((index + 1) / questions.length) * 100}%` }} /></div><b>{score} correct</b></header>
-      <div className="ordering-prompt"><span>{question.shortened ? "긴 문장 일부 출제" : "문장 전체 출제"}</span><h2>영어 어순에 맞게 배열하세요.</h2><p>{question.prompt}</p><div className={`ordering-context ${question.shortened ? "with-sentence-context" : ""}`}>{question.contextBefore ? <div><b>앞 문장</b><p>{question.contextBefore}</p></div> : <div className="context-edge"><b>앞 문장</b><p>본문의 첫 문장입니다.</p></div>}{question.shortened && question.sameSentenceBefore && <div className="same-sentence-context"><b>현재 문장 · 출제 앞부분</b><p>{question.sameSentenceBefore}</p></div>}{question.shortened && question.sameSentenceAfter && <div className="same-sentence-context"><b>현재 문장 · 출제 뒷부분</b><p>{question.sameSentenceAfter}</p></div>}{question.contextAfter ? <div><b>다음 문장</b><p>{question.contextAfter}</p></div> : <div className="context-edge"><b>다음 문장</b><p>본문의 마지막 문장입니다.</p></div>}</div></div>
+      <div className="ordering-prompt"><span>{question.shortened ? "긴 문장 일부 출제" : "문장 전체 출제"}</span><h2>영어 어순에 맞게 배열하세요.</h2><p>{question.prompt}</p><OrderingContextExcerpt question={question} /></div>
       <div className={`ordering-answer ${orderingSubmitted ? orderingCorrect ? "correct" : "wrong" : ""}`}>{selectedOrderingTokens.length ? selectedOrderingTokens.map((token) => <button key={token.id} disabled={orderingSubmitted} onClick={() => setOrderedTokenIds((ids) => ids.filter((id) => id !== token.id))}>{token.text}</button>) : <span>아래 단어를 순서대로 선택하세요.</span>}</div>
       <div className="ordering-bank">{availableOrderingTokens.map((token) => <button key={token.id} disabled={orderingSubmitted} onClick={() => setOrderedTokenIds((ids) => [...ids, token.id])}>{token.text}</button>)}</div>
       {!orderingSubmitted ? <div className="ordering-actions"><button onClick={() => setOrderedTokenIds([])} disabled={!orderedTokenIds.length}>초기화</button><button className="primary-button" onClick={submitOrdering} disabled={orderedTokenIds.length !== question.answerTokens.length}>채점하기</button></div> : <div className="answer-note"><b>{orderingCorrect ? "정답입니다" : "정답을 확인하세요"}</b><p>{question.answerTokens.join(" ")}</p><button onClick={next}>{index + 1 === questions.length ? "결과 보기" : "다음 문제 →"}</button></div>}

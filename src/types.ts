@@ -86,3 +86,40 @@ export type StudyProgress = {
   sentence_notes: Record<string, string>;
   last_studied_at: string;
 };
+
+export type LearningEventType = "quiz_answer" | "sentence_studied" | "word_saved" | "document_completed";
+
+export type LearningEvent = {
+  id: string;
+  user_id: string;
+  document_id: string | null;
+  word_id: string | null;
+  sentence_id: number | null;
+  event_type: LearningEventType;
+  quiz_mode: import("./app-types").QuizMode | null;
+  is_correct: boolean | null;
+  xp: number;
+  metadata: Record<string, unknown>;
+  created_at: string;
+};
+
+export type LearningSession = {
+  id: string;
+  user_id: string;
+  document_id: string;
+  view: "study" | "words" | "quiz";
+  started_at: string;
+  last_active_at: string;
+  ended_at: string | null;
+  active_seconds: number;
+};
+
+export type QuizAttempt = {
+  id: string;
+  user_id: string;
+  document_id: string;
+  mode: import("./app-types").QuizMode;
+  score: number;
+  question_count: number;
+  created_at: string;
+};

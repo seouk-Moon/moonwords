@@ -1,11 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { supabase } from "../../lib/supabase";
 import { cleanSelection, sameLexeme } from "../../lib/app-utils";
-import type { SelectedWord, View } from "../../app-types";
+import type { SelectedWord } from "../../app-types";
 import type { StudyDocument, StudyProgress, VocabularyItem } from "../../types";
 import { HighlightedEnglish } from "./HighlightedEnglish";
 
-export function StudyView({ doc, words, progress, onSaveWord, onDeleteWord, onProgress, onView }: { doc: StudyDocument; words: VocabularyItem[]; progress: StudyProgress; onSaveWord: (word: Omit<VocabularyItem, "id" | "user_id" | "created_at" | "updated_at">) => Promise<void>; onDeleteWord: (id: string) => Promise<void>; onProgress: (next: StudyProgress) => void; onView: (view: View) => void }) {
+export function StudyView({ doc, words, progress, onSaveWord, onDeleteWord, onProgress }: { doc: StudyDocument; words: VocabularyItem[]; progress: StudyProgress; onSaveWord: (word: Omit<VocabularyItem, "id" | "user_id" | "created_at" | "updated_at">) => Promise<void>; onDeleteWord: (id: string) => Promise<void>; onProgress: (next: StudyProgress) => void }) {
   const [selected, setSelected] = useState<SelectedWord | null>(null);
   const [loadingMeaning, setLoadingMeaning] = useState(false);
   const [lookupHighlight, setLookupHighlight] = useState<{ word: string; sentenceId: number; loading: boolean } | null>(null);
@@ -163,7 +163,6 @@ export function StudyView({ doc, words, progress, onSaveWord, onDeleteWord, onPr
           <span>{sentences.length} 문장</span><span>{understood.length} 이해 완료</span><span>{difficultSentences.length} 어려운 문장</span><span>{words.length} 저장 단어</span><span>{doc.analysis.level}</span>
         </div>
       </section>
-      <nav className="study-nav"><button className="active">본문 학습</button><button onClick={() => onView("words")}>단어장 <b>{words.length}</b></button><button onClick={() => onView("quiz")}>퀴즈</button></nav>
       <div className="study-layout">
         <article className="article-card" ref={articleRef} onMouseUp={selectWord} onScroll={() => setSelected(null)}>
           <div className="article-tip"><b>모르는 단어를 드래그해 보세요.</b><span>저장된 단어는 하이라이트를 눌러 뜻 확인·삭제가 가능해요.</span></div>

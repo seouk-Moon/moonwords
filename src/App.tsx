@@ -71,6 +71,7 @@ export default function App({ supabaseUrl, supabasePublishableKey }: AppProps = 
           onRenameFolder={workspace.renameFolder}
           onDeleteFolder={workspace.deleteFolder}
           onMoveDocument={workspace.moveDocumentToFolder}
+          learningAnalytics={workspace.learningAnalytics}
         />
       )}
 
@@ -91,13 +92,13 @@ export default function App({ supabaseUrl, supabasePublishableKey }: AppProps = 
           onSaveWord={workspace.saveWord}
           onDeleteWord={workspace.deleteWord}
           onProgress={workspace.saveProgress}
-          onView={workspace.setView}
         />
       )}
 
       {workspace.current && workspace.view === "words" && (
         <Wordbook
           words={workspace.words}
+          progress={workspace.progress}
           onUpdate={workspace.updateWord}
           onDelete={workspace.deleteWord}
           onStudy={() => workspace.setView("study")}
@@ -114,6 +115,8 @@ export default function App({ supabaseUrl, supabasePublishableKey }: AppProps = 
           onGenerate={(type, count) => { void quizGeneration.startQuizGeneration(type, count); }}
           onProgress={workspace.saveProgress}
           onResult={workspace.quizResult}
+          onQuestionAnswered={workspace.recordQuizAnswer}
+          onQuizComplete={workspace.recordQuizAttempt}
         />
       )}
 

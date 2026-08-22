@@ -5,6 +5,9 @@ import { supabase } from "../lib/supabase";
 import { uid } from "../lib/app-utils";
 import type { View } from "../app-types";
 import type { DocumentFolder, StudyDocument, StudyProgress, VocabularyItem } from "../types";
+import { appendWordQuizResult } from "../features/vocabulary/recent-results";
+import { useLearningAnalytics } from "./useLearningAnalytics";
+import type { QuizMode } from "../app-types";
 
 const createDemoProgress = (): StudyProgress => ({
   user_id: "demo-user",
@@ -24,6 +27,7 @@ export function useStudyWorkspace(configured: boolean) {
   const [words, setWords] = useState<VocabularyItem[]>([]);
   const [progress, setProgress] = useState<StudyProgress>(createDemoProgress);
   const [view, setView] = useState<View>(configured ? "library" : "study");
+  const learning = useLearningAnalytics({ session, current, view });
 
   useEffect(() => {
     if (!supabase) return;
@@ -81,10 +85,9 @@ export function useStudyWorkspace(configured: boolean) {
 
     if (!supabase || !session) {
       const now = new Date().toISOString();
-      setWords((items) => [
-        ...items,
-        { ...payload, id: uid(), user_id: "demo-user", created_at: now, updated_at: now },
-      ]);
+      const created = { ...payload, id: uid(), user_id: "demo-user", created_at: now, updated_at: now };
+      setWords((items) => [...items, created]);
+      learning.recordWordSaved(created.id);
       return;
     }
 
@@ -93,7 +96,11 @@ export function useStudyWorkspace(configured: boolean) {
       .insert({ ...payload, user_id: session.user.id })
       .select()
       .single();
-    if (!result.error) setWords((items) => [...items, result.data as VocabularyItem]);
+    if (!result.error) {
+      const created = result.data as VocabularyItem;
+      setWords((items) => [...items, created]);
+      learning.recordWordSaved(created.id);
+    }
   };
 
   const updateWord = async (item: VocabularyItem) => {
@@ -120,6 +127,15 @@ export function useStudyWorkspace(configured: boolean) {
   };
 
   const saveProgress = (next: StudyProgress) => {
+    const newlyUnderstood = next.understood_sentence_ids.filter((id) => !progress.understood_sentence_ids.includes(id));
+    for (const sentenceId of newlyUnderstood) learning.recordSentenceStudied(sentenceId);
+
+    if (current && current.analysis.sentences.length > 0) {
+      const wasComplete = progress.understood_sentence_ids.length >= current.analysis.sentences.length;
+      const isComplete = next.understood_sentence_ids.length >= current.analysis.sentences.length;
+      if (!wasComplete && isComplete) learning.recordDocumentCompleted(current.id);
+    }
+
     setProgress(next);
     if (supabase && session) {
       void supabase
@@ -132,12 +148,24 @@ export function useStudyWorkspace(configured: boolean) {
     if (!id) return;
     const item = words.find((word) => word.id === id);
     if (!item) return;
+
+    // Keep cumulative counters for backwards compatibility, while the wordbook
+    // reads the rolling last-10 history saved inside the existing study_progress JSON.
     void updateWord({
       ...item,
       review_count: item.review_count + 1,
       correct_count: item.correct_count + (correct ? 1 : 0),
       incorrect_count: item.incorrect_count + (correct ? 0 : 1),
     });
+    saveProgress(appendWordQuizResult(progress, id, correct));
+  };
+
+  const recordQuizAnswer = (mode: QuizMode, correct: boolean, options?: { wordId?: string; sentenceId?: number }) => {
+    learning.recordQuizAnswer(mode, correct, options);
+  };
+
+  const recordQuizAttempt = (mode: QuizMode, score: number, questionCount: number) => {
+    learning.recordQuizAttempt(mode, score, questionCount, current?.id);
   };
 
   const addDocumentAndOpen = (doc: StudyDocument) => {
@@ -221,6 +249,9 @@ export function useStudyWorkspace(configured: boolean) {
     deleteWord,
     saveProgress,
     quizResult,
+    recordQuizAnswer,
+    recordQuizAttempt,
+    learningAnalytics: learning.snapshot,
     addDocumentAndOpen,
     applyUpdatedDocument,
     createFolder,

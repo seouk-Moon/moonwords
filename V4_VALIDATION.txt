@@ -1,0 +1,10 @@
+MoonWords v4 validation
+=======================
+
+PASS duplicate StudyView nav removed
+PASS quiz result actions added
+PASS ordering context uses continuous excerpt
+PASS rolling recent-10 word score implemented
+PASS Primary logo applied
+PASS stubbed TypeScript syntax/type pass completed with global tsc 5.8.3
+NOTE full npm build unavailable because dependency installation timed out in this environment

@@ -1,0 +1,8 @@
+MoonWords v5 validation
+- Base: v4 package
+- TS/TSX syntax transpile: 31 files, 0 syntax diagnostics
+- Relative local imports: OK
+- modern-study.css brace balance: OK
+- process-document Edge Function: unchanged
+- New migration is additive only: learning_events + learning_sessions
+- npm dependency install could not complete inside this sandbox, so full Vite build should still be run locally with npm ci && npm run build:pages.

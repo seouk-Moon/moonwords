@@ -60,6 +60,14 @@ export type OrderingQuizQuestion = {
 
 export type QuizQuestion = ChoiceQuizQuestion | WrittenQuizQuestion | FlashcardQuestion | OrderingQuizQuestion;
 
+export type QuizMistakeReviewItem = {
+  id: string;
+  prompt: string;
+  selected?: string;
+  answer: string;
+  explanation?: string;
+};
+
 export type SelectedWord = {
   word: string;
   sentenceId: number;
