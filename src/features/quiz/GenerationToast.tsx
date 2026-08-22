@@ -1,3 +1,4 @@
+import { useEffect } from "react";
 import type { QuizGenerationJob } from "../../app-types";
 
 type Props = {
@@ -8,6 +9,12 @@ type Props = {
 };
 
 export function GenerationToast({ job, onStop, onOpen, onDismiss }: Props) {
+  useEffect(() => {
+    if (job.status !== "cancelled") return;
+    const timer = window.setTimeout(onDismiss, 3500);
+    return () => window.clearTimeout(timer);
+  }, [job.id, job.status, onDismiss]);
+
   const title = job.status === "running"
     ? "문제 생성 중"
     : job.status === "success"

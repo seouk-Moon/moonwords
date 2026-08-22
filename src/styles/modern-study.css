@@ -450,3 +450,103 @@ button { font-weight: 650; }
   .tool-heading h1 { font-size: 32px; }
   .flashcard > strong { font-size: 32px; }
 }
+
+/* Revision 2026-08-23: readable word lookup popover */
+.selection-popover {
+  position: fixed;
+  width: min(310px, calc(100vw - 24px));
+  z-index: 90;
+  border: 1px solid #dbe3ef;
+  background: #ffffff;
+  color: #111827;
+  box-shadow: 0 18px 55px rgba(15, 23, 42, .18);
+}
+.selection-popover small { color: var(--blue); }
+.selection-popover strong { color: #111827; }
+.selection-popover input {
+  background: #f8fbff;
+  border-color: #bfdbfe;
+  color: #1d4ed8;
+  font-weight: 720;
+  -webkit-text-fill-color: #1d4ed8;
+  opacity: 1;
+}
+.selection-popover input::placeholder { color: #7b8aa5; }
+.selection-popover input:disabled {
+  color: #315a9d;
+  -webkit-text-fill-color: #315a9d;
+  background: #f3f6fa;
+}
+.selection-popover button { color: #5f6b7a; }
+.selection-popover .delete-word { color: #b42318; border-color: #f0b8b8; }
+.selection-popover .save-word { background: var(--blue); color: #fff; }
+
+/* Reading columns scroll independently on desktop. */
+@media (min-width: 901px) {
+  .study-layout { align-items: start; }
+  .article-card,
+  .insight-panel {
+    max-height: calc(100vh - 92px);
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    scrollbar-gutter: stable;
+  }
+  .article-card {
+    scrollbar-width: thin;
+    scrollbar-color: #cbd5e1 transparent;
+  }
+  .insight-panel {
+    position: sticky;
+    top: 78px;
+    scrollbar-width: thin;
+    scrollbar-color: #cbd5e1 transparent;
+  }
+}
+
+/* Quiz now lives in the normal app layout so global navigation stays available. */
+.quiz-page { max-width: 850px; }
+.quiz-page .tool-heading { align-items: flex-end; }
+.quiz-page .tool-heading .outline-button { flex: 0 0 auto; }
+
+/* Ordering quiz uses surrounding English context instead of Korean translation. */
+.ordering-context {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  margin-top: 16px;
+}
+.ordering-context > div {
+  min-width: 0;
+  padding: 12px 13px;
+  border: 1px solid #e1e7f0;
+  border-radius: 10px;
+  background: #f8fafc;
+}
+.ordering-context b {
+  display: block;
+  margin-bottom: 5px;
+  color: #2563eb;
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: .04em;
+}
+.ordering-context p {
+  margin: 0;
+  color: #4b5563;
+  font: 500 12px/1.55 Georgia, "Times New Roman", serif;
+}
+.ordering-context .context-edge { background: #fafafa; }
+.ordering-context .context-edge p { color: #98a2b3; font-family: inherit; }
+
+@media (max-width: 900px) {
+  .article-card,
+  .insight-panel {
+    max-height: none;
+    overflow: visible;
+  }
+}
+
+@media (max-width: 620px) {
+  .ordering-context { grid-template-columns: 1fr; }
+  .quiz-page .tool-heading .outline-button { width: 100%; margin-top: 16px; }
+}

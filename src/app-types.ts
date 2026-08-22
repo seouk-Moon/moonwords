@@ -46,6 +46,8 @@ export type OrderingQuizQuestion = {
   kind: "ordering";
   prompt: string;
   explanation: string;
+  contextBefore?: string;
+  contextAfter?: string;
   sentenceId: number;
   answerTokens: string[];
   shuffledTokens: Array<{ id: string; text: string }>;

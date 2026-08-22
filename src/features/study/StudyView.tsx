@@ -36,7 +36,7 @@ export function StudyView({ doc, words, progress, onSaveWord, onDeleteWord, onPr
     const rect = selection.getRangeAt(0).getBoundingClientRect();
     activeLookup.current = "";
     setLoadingMeaning(false);
-    setSelected({ word, sentenceId, meaning: immediateMeaning, savedId: saved?.id, x: Math.max(12, Math.min(rect.left, window.innerWidth - 322)), y: rect.bottom + window.scrollY + 10 });
+    setSelected({ word, sentenceId, meaning: immediateMeaning, savedId: saved?.id, x: Math.max(12, Math.min(rect.left, window.innerWidth - 322)), y: Math.max(12, Math.min(rect.bottom + 10, window.innerHeight - 220)) });
     if (!immediateMeaning && supabase) {
       activeLookup.current = cacheKey;
       setLoadingMeaning(true);
@@ -56,7 +56,7 @@ export function StudyView({ doc, words, progress, onSaveWord, onDeleteWord, onPr
     const rect = element.getBoundingClientRect();
     activeLookup.current = "";
     setLoadingMeaning(false);
-    setSelected({ word: word.word, sentenceId: word.sentence_id, meaning: word.meaning, savedId: word.id, x: Math.max(12, Math.min(rect.left, window.innerWidth - 322)), y: rect.bottom + window.scrollY + 10 });
+    setSelected({ word: word.word, sentenceId: word.sentence_id, meaning: word.meaning, savedId: word.id, x: Math.max(12, Math.min(rect.left, window.innerWidth - 322)), y: Math.max(12, Math.min(rect.bottom + 10, window.innerHeight - 220)) });
     window.getSelection()?.removeAllRanges();
   }, []);
 
@@ -144,7 +144,7 @@ export function StudyView({ doc, words, progress, onSaveWord, onDeleteWord, onPr
       </section>
       <nav className="study-nav"><button className="active">본문 학습</button><button onClick={() => onView("words")}>단어장 <b>{words.length}</b></button><button onClick={() => onView("quiz")}>퀴즈</button></nav>
       <div className="study-layout">
-        <article className="article-card" ref={articleRef} onMouseUp={selectWord}>
+        <article className="article-card" ref={articleRef} onMouseUp={selectWord} onScroll={() => setSelected(null)}>
           <div className="article-tip"><b>모르는 단어를 드래그해 보세요.</b><span>저장된 단어는 하이라이트를 눌러 뜻 확인·삭제가 가능해요.</span></div>
           <div className="audio-toolbar"><div><button className="audio-play" onClick={listeningState === "idle" ? startFullListening : toggleListeningPause}>{listeningState === "idle" ? "▶ 전체 듣기" : listeningState === "paused" ? "▶ 계속 듣기" : "Ⅱ 일시정지"}</button>{listeningState !== "idle" && <button onClick={stopFullListening}>■ 정지</button>}<span>{speakingSentenceId ? `${sentences.findIndex((sentence) => sentence.id === speakingSentenceId) + 1}/${sentences.length} 문장` : "영어 본문 연속 재생"}</span></div></div>
           {doc.analysis.sections.map((section) => <section className="paragraph-block" key={section.id}>
@@ -158,7 +158,7 @@ export function StudyView({ doc, words, progress, onSaveWord, onDeleteWord, onPr
             })}
           </section>)}
         </article>
-        <aside className="insight-panel"><span className="section-kicker">READING MAP</span><h3>본문 구조</h3><p>{doc.analysis.structure}</p><div className="structure-list">{doc.analysis.sections.map((section) => <div key={section.id}><b>{section.id}</b><span>{section.label}<small>{section.role}</small></span></div>)}</div><div className="progress-ring"><strong>{Math.round((understood.length / Math.max(sentences.length, 1)) * 100)}%</strong><span>이해 완료</span></div></aside>
+        <aside className="insight-panel" onScroll={() => setSelected(null)}><span className="section-kicker">READING MAP</span><h3>본문 구조</h3><p>{doc.analysis.structure}</p><div className="structure-list">{doc.analysis.sections.map((section) => <div key={section.id}><b>{section.id}</b><span>{section.label}<small>{section.role}</small></span></div>)}</div><div className="progress-ring"><strong>{Math.round((understood.length / Math.max(sentences.length, 1)) * 100)}%</strong><span>이해 완료</span></div></aside>
       </div>
       {selected && <div className="selection-popover" style={{ left: selected.x, top: selected.y }}>
         <small>{selected.savedId ? "SAVED WORD" : "MEANING"}</small>

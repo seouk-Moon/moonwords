@@ -51,7 +51,7 @@ export const createAdditionalClozeQuestions = (doc: StudyDocument, words: Vocabu
   return created;
 };
 
-const missedComprehensionKey = "__missed_comprehension_question_ids";
+export const missedComprehensionKey = "__missed_comprehension_question_ids";
 export const readMissedComprehensionIds = (progress: StudyProgress, questionCount: number) => {
   try {
     const parsed = JSON.parse(progress.sentence_notes?.[missedComprehensionKey] ?? "[]");
