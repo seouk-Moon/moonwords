@@ -1,0 +1,16 @@
+MoonWords Modern Study refactor validation
+==========================================
+
+Static checks completed in the working environment:
+- TS/TSX transpile syntax diagnostics: 0
+- Relative import path resolution errors: 0
+- modern-study.css brace balance: 0
+- Supabase directory changed by this refactor: NO
+- src/App.tsx line count after refactor: 119
+- Existing process-document actions still present: analyze / define / tts
+
+Full npm/Vite build note:
+- The uploaded ZIP did not include node_modules.
+- Dependency installation could not be completed within this execution environment,
+  so npm run build:pages was not available here.
+- Run `npm ci` followed by `npm run build:pages` in the project environment before deployment.

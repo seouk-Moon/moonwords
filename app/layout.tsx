@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import "./globals.css";
+import "../src/styles/modern-study.css";
 
 export const metadata: Metadata = {
   other: { "codex-preview": "development" },
