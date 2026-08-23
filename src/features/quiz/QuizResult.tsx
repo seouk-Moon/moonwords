@@ -20,6 +20,7 @@ export function QuizResult({
   onRetryIncorrect,
   onShuffleAll,
   onHome,
+  compactFlashcardMistakes = false,
 }: {
   score: number;
   total: number;
@@ -29,6 +30,7 @@ export function QuizResult({
   onRetryIncorrect: () => void;
   onShuffleAll: () => void;
   onHome: () => void;
+  compactFlashcardMistakes?: boolean;
 }) {
   const [showMistakes, setShowMistakes] = useState(false);
 
@@ -42,7 +44,7 @@ export function QuizResult({
           {canRetryIncorrect && <button onClick={onRetryIncorrect}>오답만 풀기</button>}
           <button className="primary-button" onClick={onShuffleAll}>전체 섞어서 풀기</button>
           <button onClick={() => setShowMistakes((value) => !value)} disabled={!mistakes.length}>
-            {mistakes.length ? `오답 확인하기 ${mistakes.length}` : "오답 없음"}
+            {mistakes.length ? "오답 확인하기" : "오답 없음"}
           </button>
           <button onClick={onHome}>처음으로</button>
         </div>
@@ -54,8 +56,17 @@ export function QuizResult({
             <div><span>REVIEW</span><h2>이번 퀴즈 오답</h2></div>
             <button onClick={() => setShowMistakes(false)}>닫기</button>
           </header>
-          <div className="mistake-review-list">
-            {mistakes.map((mistake, index) => (
+          <div className={`mistake-review-list ${compactFlashcardMistakes ? "flashcard-mistake-review-list" : ""}`}>
+            {mistakes.map((mistake, index) => compactFlashcardMistakes ? (
+              <article className="flashcard-mistake-review-item" key={mistake.id}>
+                <div>
+                  <p className="flashcard-mistake-sentence">
+                    <HighlightedMistakeSentence sentence={mistake.sourceSentence || mistake.prompt} testedPart={mistake.testedPart} />
+                  </p>
+                  <p className="flashcard-mistake-meaning">{mistake.answer}</p>
+                </div>
+              </article>
+            ) : (
               <article key={mistake.id}>
                 <span>{index + 1}</span>
                 <div>

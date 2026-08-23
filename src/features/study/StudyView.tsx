@@ -139,13 +139,36 @@ export function StudyView({ doc, words, progress, onSaveWord, onDeleteWord, onPr
     return () => document.removeEventListener("pointerdown", closeOnOutsidePointer, true);
   }, [selected]);
 
+  useEffect(() => {
+    let selectionTimer = 0;
+    const handleSelectionChange = () => {
+      const selection = window.getSelection();
+      if (!selection || selection.isCollapsed || !selection.rangeCount) return;
+      const range = selection.getRangeAt(0);
+      const container = range.commonAncestorContainer.nodeType === Node.TEXT_NODE
+        ? range.commonAncestorContainer.parentElement
+        : range.commonAncestorContainer as HTMLElement;
+      if (!container || !articleRef.current?.contains(container)) return;
+      window.clearTimeout(selectionTimer);
+      selectionTimer = window.setTimeout(() => { void selectWord(); }, 180);
+    };
+    document.addEventListener("selectionchange", handleSelectionChange);
+    return () => {
+      window.clearTimeout(selectionTimer);
+      document.removeEventListener("selectionchange", handleSelectionChange);
+    };
+  }, [selectWord]);
+
   const toggle = (key: "understood_sentence_ids" | "bookmarked_sentence_ids", id: number) => {
     const current = progress[key];
     onProgress({ ...progress, [key]: current.includes(id) ? current.filter((value) => value !== id) : [...current, id], last_studied_at: new Date().toISOString() });
   };
   const speak = (text: string) => { stopFullListening(); const utterance = new SpeechSynthesisUtterance(text); utterance.lang = "en-US"; utterance.rate = 0.86; window.speechSynthesis.speak(utterance); };
   const openOriginalFile = async () => {
-    if (!supabase || !doc.source_file_path) return;
+    if (!supabase || !doc.source_file_path) {
+      setShowOriginal(true);
+      return;
+    }
     const preview = window.open("", "_blank");
     const { data, error } = await supabase.storage.from("source-files").createSignedUrl(doc.source_file_path, 600);
     if (error || !data?.signedUrl) {
@@ -159,6 +182,25 @@ export function StudyView({ doc, words, progress, onSaveWord, onDeleteWord, onPr
     } else {
       window.location.href = data.signedUrl;
     }
+  };
+  const downloadOriginalFile = async () => {
+    if (!supabase || !doc.source_file_path) return;
+    const { data, error } = await supabase.storage.from("source-files").createSignedUrl(
+      doc.source_file_path,
+      600,
+      { download: doc.source_name || "moonwords-original" },
+    );
+    if (error || !data?.signedUrl) {
+      window.alert("원본 파일을 다운로드하지 못했습니다. 잠시 후 다시 시도해 주세요.");
+      return;
+    }
+    const link = document.createElement("a");
+    link.href = data.signedUrl;
+    link.download = doc.source_name || "moonwords-original";
+    link.rel = "noopener";
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
   };
   const saveSelected = async () => {
     if (!selected?.meaning) return;
@@ -183,12 +225,19 @@ export function StudyView({ doc, words, progress, onSaveWord, onDeleteWord, onPr
           <span>{sentences.length} 문장</span><span>{understood.length} 이해 완료</span><span>{difficultSentences.length} 어려운 문장</span><span>{words.length} 저장 단어</span><span>{doc.analysis.level}</span>
         </div>
         <div className="reading-head-actions">
-          <button className="original-text-toggle" onClick={() => setShowOriginal(true)}>▤ 원문 보기</button>
-          <small>현재 학습 화면은 그대로 두고, 업로드한 원문을 옆에서 확인할 수 있어요.</small>
+          <button className="original-text-toggle" onClick={() => void openOriginalFile()}>▤ 원문 보기</button>
+          {doc.source_file_path && <button className="original-download-button" onClick={() => void downloadOriginalFile()}>↓ 다운로드</button>}
+          <small>{doc.source_file_path ? "업로드한 원본 파일을 바로 열거나 다운로드할 수 있어요." : "붙여 넣은 원문을 확인할 수 있어요."}</small>
         </div>
       </section>
       <div className="study-layout">
-        <article className="article-card" ref={articleRef} onMouseUp={selectWord} onScroll={() => setSelected(null)}>
+        <article
+          className="article-card"
+          ref={articleRef}
+          onMouseUp={selectWord}
+          onTouchEnd={() => window.setTimeout(() => { void selectWord(); }, 120)}
+          onScroll={() => setSelected(null)}
+        >
           <div className="article-tip"><b>모르는 단어를 드래그해 보세요.</b><span>저장된 단어는 하이라이트를 눌러 뜻 확인·삭제가 가능해요.</span></div>
           <div className="audio-toolbar"><div><button className="audio-play" onClick={listeningState === "idle" ? startFullListening : toggleListeningPause}>{listeningState === "idle" ? "▶ 전체 듣기" : listeningState === "paused" ? "▶ 계속 듣기" : "Ⅱ 일시정지"}</button>{listeningState !== "idle" && <button onClick={stopFullListening}>■ 정지</button>}<span>{speakingSentenceId ? `${sentences.findIndex((sentence) => sentence.id === speakingSentenceId) + 1}/${sentences.length} 문장` : "영어 본문 연속 재생"}</span></div></div>
           {doc.analysis.sections.map((section) => <section className="paragraph-block" key={section.id}>

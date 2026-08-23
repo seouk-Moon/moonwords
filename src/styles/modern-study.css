@@ -1368,3 +1368,86 @@ button { font-weight: 650; }
   .original-source-header-actions { align-items: flex-end; flex-direction: column-reverse; }
   .original-source-drawer .open-source-file { font-size: 8px; }
 }
+
+
+/* Revision 2026-08-23 — compact flashcard review and smaller quiz prompts. */
+.quiz-card > h2,
+.ordering-prompt h2 {
+  font-size: 20px;
+  line-height: 1.42;
+}
+.flashcard-mistake-review-list article.flashcard-mistake-review-item {
+  display: block;
+  padding: 18px 19px;
+}
+.flashcard-mistake-review-item > div { min-width: 0; }
+.flashcard-mistake-review-list .flashcard-mistake-sentence {
+  margin: 0;
+  color: #344054;
+  font: 520 13px/1.85 Georgia, "Times New Roman", serif;
+}
+.flashcard-mistake-review-list .flashcard-mistake-meaning {
+  margin: 9px 0 0;
+  color: #1d4ed8;
+  font-size: 12px;
+  font-weight: 760;
+}
+
+/* Open the uploaded source directly, with a separate download action. */
+.original-download-button {
+  border: 1px solid #d5deec;
+  border-radius: 10px;
+  padding: 9px 12px;
+  background: #fff;
+  color: #1d4ed8;
+  font-size: 10px;
+  font-weight: 760;
+  box-shadow: 0 5px 14px rgba(15,23,42,.03);
+}
+.original-download-button:hover { border-color: #9eb6df; background: #f8faff; }
+
+/* Mobile text selection: keep native long-press/drag selection available. */
+.article-card .english,
+.article-card .english * {
+  -webkit-user-select: text;
+  user-select: text;
+  -webkit-touch-callout: default;
+}
+
+/* Profile-only mobile overflow guard: prevent the slight horizontal page drift. */
+@media (max-width: 760px) {
+  .profile-page {
+    max-width: calc(100% - 28px);
+    overflow-x: hidden;
+  }
+  .profile-page,
+  .profile-page > *,
+  .profile-card-grid,
+  .profile-card,
+  .profile-identity-copy,
+  .growth-dashboard,
+  .growth-dashboard > *,
+  .growth-hero-grid,
+  .growth-detail-grid,
+  .growth-bottom-grid,
+  .activity-history-list,
+  .activity-history-list > div {
+    min-width: 0;
+    max-width: 100%;
+  }
+  .profile-identity-card { grid-template-columns: 82px minmax(0, 1fr); }
+  .profile-identity-copy h2,
+  .profile-identity-copy p { overflow-wrap: anywhere; }
+  .week-days { grid-template-columns: repeat(7, minmax(0, 1fr)); }
+  .week-days > div { min-width: 0; }
+  .week-summary-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .profile-form-grid input,
+  .profile-form-grid select { min-width: 0; max-width: 100%; }
+}
+
+@media (max-width: 620px) {
+  .quiz-card > h2,
+  .ordering-prompt h2 { font-size: 19px; }
+  .reading-head-actions { grid-template-columns: auto auto; }
+  .reading-head-actions small { grid-column: 1 / -1; }
+}
