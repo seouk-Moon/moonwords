@@ -14,6 +14,7 @@ import { Wordbook } from "./features/vocabulary/Wordbook";
 import { Quiz } from "./features/quiz/Quiz";
 import { GenerationToast } from "./features/quiz/GenerationToast";
 import { LegalPage } from "./features/legal/LegalPage";
+import { ProfilePage } from "./features/profile/ProfilePage";
 import { useStudyWorkspace } from "./hooks/useStudyWorkspace";
 import { useQuizGeneration } from "./hooks/useQuizGeneration";
 
@@ -76,8 +77,7 @@ export default function App({ supabaseUrl, supabasePublishableKey }: AppProps = 
           onRenameFolder={workspace.renameFolder}
           onDeleteFolder={workspace.deleteFolder}
           onMoveDocument={workspace.moveDocumentToFolder}
-          learningAnalytics={workspace.learningAnalytics}
-        />
+          />
       )}
 
       {!infoPage && workspace.view === "upload" && workspace.session && (
@@ -122,6 +122,15 @@ export default function App({ supabaseUrl, supabasePublishableKey }: AppProps = 
           onResult={workspace.quizResult}
           onQuestionAnswered={workspace.recordQuizAnswer}
           onQuizComplete={workspace.recordQuizAttempt}
+        />
+      )}
+
+
+      {!infoPage && workspace.session && workspace.view === "profile" && (
+        <ProfilePage
+          session={workspace.session}
+          analytics={workspace.learningAnalytics}
+          onBack={() => workspace.setView("library")}
         />
       )}
 

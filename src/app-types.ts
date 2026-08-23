@@ -1,4 +1,4 @@
-export type View = "library" | "study" | "words" | "quiz" | "upload";
+export type View = "library" | "study" | "words" | "quiz" | "upload" | "profile";
 
 export type QuizMode = "meaning" | "cloze" | "comprehension" | "ordering" | "flashcard";
 export type OrderingScope = "all" | "difficult" | "selected";

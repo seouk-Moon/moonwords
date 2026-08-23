@@ -3,18 +3,28 @@ import type { InfoPage } from "../../components/layout/SiteFooter";
 const effectiveDate = "2026년 8월 23일";
 
 export function LegalPage({ page, onBack }: { page: InfoPage; onBack: () => void }) {
-  const title = page === "terms" ? "이용약관" : page === "privacy" ? "개인정보처리방침" : "문의하기";
+  const title = page === "service" ? "서비스" : page === "terms" ? "이용약관" : page === "privacy" ? "개인정보처리방침" : "문의하기";
   return (
     <main className="legal-page">
       <button className="legal-back" onClick={onBack}>← MoonWords로 돌아가기</button>
       <header>
         <span className="eyebrow">MOONWORDS · SERVICE INFO</span>
         <h1>{title}</h1>
-        {page !== "contact" && <p>시행일: {effectiveDate}</p>}
+        {page !== "contact" && page !== "service" && <p>시행일: {effectiveDate}</p>}
       </header>
-      {page === "terms" ? <Terms /> : page === "privacy" ? <Privacy /> : <Contact />}
+      {page === "service" ? <Service /> : page === "terms" ? <Terms /> : page === "privacy" ? <Privacy /> : <Contact />}
     </main>
   );
+}
+
+function Service() {
+  return <article className="legal-card service-info-card">
+    <section><h2>본문 학습</h2><p>PDF, DOCX, TXT 또는 직접 입력한 영어 본문을 문장별로 읽고 번역, 듣기, 이해 체크, 어려운 문장 체크를 사용할 수 있습니다. 필요할 때는 학습 화면 위에서 원래 업로드한 원문도 함께 확인할 수 있습니다.</p></section>
+    <section><h2>단어장</h2><p>본문에서 모르는 단어를 선택해 뜻을 확인하고 저장할 수 있으며, 저장한 단어를 복습하고 최근 퀴즈 결과를 바탕으로 학습 상태를 확인할 수 있습니다.</p></section>
+    <section><h2>퀴즈</h2><p>단어 뜻, 빈칸, 어순 배열, 독해 문제 등 여러 방식으로 본문을 복습할 수 있습니다. 기존 본문 학습 메뉴를 유지하면서 언제든 다른 메뉴로 이동할 수 있습니다.</p></section>
+    <section><h2>학습 기록</h2><p>연속 학습일, 정답률, 문제 풀이 수, 학습 시간과 최근 활동 기록은 로그인 후 상단 프로필 버튼에서 확인할 수 있습니다.</p></section>
+    <section><h2>프로필</h2><p>가입 시 본명, 닉네임과 성별을 설정할 수 있고, 로그인 후 프로필 화면에서 정보를 수정하거나 프로필 사진을 등록할 수 있습니다.</p></section>
+  </article>;
 }
 
 function Terms() {
@@ -33,7 +43,7 @@ function Terms() {
 
 function Privacy() {
   return <article className="legal-card">
-    <section><h2>1. 처리하는 정보</h2><p>MoonWords는 기능 제공 과정에서 이메일 기반 계정 정보, 사용자가 등록한 본문과 분석 결과, 저장한 단어, 문장 학습 상태, 퀴즈 응답 및 학습 기록을 처리할 수 있습니다. 서비스 운영 환경에서는 접속·오류 관련 기술 정보가 인프라 제공자에 의해 처리될 수 있습니다.</p></section>
+    <section><h2>1. 처리하는 정보</h2><p>MoonWords는 기능 제공 과정에서 이메일 기반 계정 정보, 사용자가 설정한 본명·닉네임·성별·프로필 사진, 사용자가 등록한 본문과 분석 결과, 저장한 단어, 문장 학습 상태, 퀴즈 응답 및 학습 기록을 처리할 수 있습니다. 서비스 운영 환경에서는 접속·오류 관련 기술 정보가 인프라 제공자에 의해 처리될 수 있습니다.</p></section>
     <section><h2>2. 이용 목적</h2><p>정보는 로그인 및 계정 유지, 본문·단어장 저장, 학습 진도 동기화, 퀴즈 채점과 통계 제공, 서비스 안정성 및 오류 개선을 위해 사용합니다.</p></section>
     <section><h2>3. 외부 서비스 이용</h2><p>MoonWords는 인증과 데이터 저장을 위해 Supabase를 사용하며, AI 분석이나 문제 생성 기능을 사용할 때에는 서버 측 기능을 통해 Google Gemini 계열 AI 서비스로 필요한 본문 일부가 전달될 수 있습니다. 외부 서비스의 처리는 각 제공자의 정책과 계약 조건의 적용을 받을 수 있습니다.</p></section>
     <section><h2>4. 보관과 삭제</h2><p>계정 및 학습 데이터는 서비스 제공에 필요한 기간 동안 보관하며, 사용자가 데이터를 직접 삭제하거나 계정·데이터 삭제를 요청하는 경우 관련 법령상 보관 의무가 없는 범위에서 삭제할 수 있습니다. 백업 또는 장애 복구용 사본은 제한된 기간 동안 남을 수 있습니다.</p></section>

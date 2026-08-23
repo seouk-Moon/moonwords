@@ -14,7 +14,7 @@ const items: Array<{ view: "study" | "words" | "quiz"; label: string; icon: "stu
 ];
 
 export function MobileBottomNav({ view, hasCurrent, onView }: Props) {
-  if (!hasCurrent || view === "library" || view === "upload") return null;
+  if (!hasCurrent || view === "library" || view === "upload" || view === "profile") return null;
 
   return (
     <nav className="mobile-bottom-nav" aria-label="현재 본문 학습 메뉴">

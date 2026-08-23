@@ -1,0 +1,7 @@
+MoonWords V7 validation
+Date: 2026-08-23
+
+- TS/TSX parser check for all modified/new TypeScript files: PASS
+- git diff --check: PASS
+- GitHub Pages dependency install/build: NOT EXECUTED in sandbox because registry.npmjs.org DNS/network access is unavailable.
+- Existing features were kept in place; new UI routes and source viewer are additive except the learning dashboard was intentionally moved from Library to Profile per request.

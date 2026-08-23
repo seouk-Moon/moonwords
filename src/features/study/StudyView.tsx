@@ -11,6 +11,7 @@ export function StudyView({ doc, words, progress, onSaveWord, onDeleteWord, onPr
   const [lookupHighlight, setLookupHighlight] = useState<{ word: string; sentenceId: number; loading: boolean } | null>(null);
   const [listeningState, setListeningState] = useState<"idle" | "playing" | "paused">("idle");
   const [speakingSentenceId, setSpeakingSentenceId] = useState<number | null>(null);
+  const [showOriginal, setShowOriginal] = useState(false);
   const articleRef = useRef<HTMLDivElement>(null);
   const popoverRef = useRef<HTMLDivElement>(null);
   const meaningCache = useRef(new Map<string, string>());
@@ -118,9 +119,12 @@ export function StudyView({ doc, words, progress, onSaveWord, onDeleteWord, onPr
     }
   };
 
-  useEffect(() => () => {
-    listeningRun.current += 1;
-    window.speechSynthesis.cancel();
+  useEffect(() => {
+    setShowOriginal(false);
+    return () => {
+      listeningRun.current += 1;
+      window.speechSynthesis.cancel();
+    };
   }, [doc.id]);
 
   useEffect(() => {
@@ -140,6 +144,22 @@ export function StudyView({ doc, words, progress, onSaveWord, onDeleteWord, onPr
     onProgress({ ...progress, [key]: current.includes(id) ? current.filter((value) => value !== id) : [...current, id], last_studied_at: new Date().toISOString() });
   };
   const speak = (text: string) => { stopFullListening(); const utterance = new SpeechSynthesisUtterance(text); utterance.lang = "en-US"; utterance.rate = 0.86; window.speechSynthesis.speak(utterance); };
+  const openOriginalFile = async () => {
+    if (!supabase || !doc.source_file_path) return;
+    const preview = window.open("", "_blank");
+    const { data, error } = await supabase.storage.from("source-files").createSignedUrl(doc.source_file_path, 600);
+    if (error || !data?.signedUrl) {
+      preview?.close();
+      window.alert("원본 파일을 열지 못했습니다. 잠시 후 다시 시도해 주세요.");
+      return;
+    }
+    if (preview) {
+      preview.opener = null;
+      preview.location.href = data.signedUrl;
+    } else {
+      window.location.href = data.signedUrl;
+    }
+  };
   const saveSelected = async () => {
     if (!selected?.meaning) return;
     const sentence = sentences.find((item) => item.id === selected.sentenceId)!;
@@ -162,6 +182,10 @@ export function StudyView({ doc, words, progress, onSaveWord, onDeleteWord, onPr
         <div className="study-stats">
           <span>{sentences.length} 문장</span><span>{understood.length} 이해 완료</span><span>{difficultSentences.length} 어려운 문장</span><span>{words.length} 저장 단어</span><span>{doc.analysis.level}</span>
         </div>
+        <div className="reading-head-actions">
+          <button className="original-text-toggle" onClick={() => setShowOriginal(true)}>▤ 원문 보기</button>
+          <small>현재 학습 화면은 그대로 두고, 업로드한 원문을 옆에서 확인할 수 있어요.</small>
+        </div>
       </section>
       <div className="study-layout">
         <article className="article-card" ref={articleRef} onMouseUp={selectWord} onScroll={() => setSelected(null)}>
@@ -180,6 +204,18 @@ export function StudyView({ doc, words, progress, onSaveWord, onDeleteWord, onPr
         </article>
         <aside className="insight-panel" onScroll={() => setSelected(null)}><span className="section-kicker">READING MAP</span><h3>본문 구조</h3><p>{doc.analysis.structure}</p><div className="structure-list">{doc.analysis.sections.map((section) => <div key={section.id}><b>{section.id}</b><span>{section.label}<small>{section.role}</small></span></div>)}</div><div className="progress-ring"><strong>{Math.round((understood.length / Math.max(sentences.length, 1)) * 100)}%</strong><span>이해 완료</span></div></aside>
       </div>
+      {showOriginal && <>
+        <button className="original-source-backdrop" aria-label="원문 닫기" onClick={() => setShowOriginal(false)} />
+        <aside className="original-source-drawer" role="dialog" aria-modal="true" aria-label="업로드한 원문">
+          <header>
+            <div><span className="section-kicker">ORIGINAL SOURCE</span><h2>원문 보기</h2><p>{doc.source_name || doc.title}</p></div>
+            <div className="original-source-header-actions">{doc.source_file_path && <button className="open-source-file" onClick={() => void openOriginalFile()}>원본 파일 열기 ↗</button>}<button className="close-source-drawer" onClick={() => setShowOriginal(false)} aria-label="원문 닫기">×</button></div>
+          </header>
+          <div className="original-source-note">학습 화면의 번역·단어장·이해 체크·퀴즈 기능은 그대로 유지됩니다. 필요할 때 이 원문을 참고하세요.</div>
+          <article className="original-source-text">{doc.original_text?.trim() || sentences.map((sentence) => sentence.english).join("\n\n")}</article>
+        </aside>
+      </>}
+
       {selected && <div ref={popoverRef} className="selection-popover" style={{ left: selected.x, top: selected.y }}>
         <small>{selected.savedId ? "SAVED WORD" : "MEANING"}</small>
         <strong>{selected.word}</strong>
