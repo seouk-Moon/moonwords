@@ -117,6 +117,7 @@ export function useLearningAnalytics({
   }, [completedDocumentIds, events, recordEvent]);
 
   const recordQuizAttempt = useCallback((mode: QuizMode, score: number, questionCount: number, documentId?: string) => {
+    if (questionCount <= 0) return;
     const attempt: QuizAttempt = {
       id: uid(),
       user_id: session?.user.id ?? "demo-user",

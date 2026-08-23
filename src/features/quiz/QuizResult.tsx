@@ -1,6 +1,16 @@
 import { useState } from "react";
 import type { QuizMistakeReviewItem } from "../../app-types";
 
+const HighlightedMistakeSentence = ({ sentence, testedPart }: { sentence: string; testedPart?: string }) => {
+  const normalizedSentence = sentence.replace(/\s+/g, " ").trim();
+  const normalizedPart = testedPart?.replace(/\s+/g, " ").trim();
+  if (!normalizedPart) return <>{normalizedSentence}</>;
+  const start = normalizedSentence.toLocaleLowerCase().indexOf(normalizedPart.toLocaleLowerCase());
+  if (start < 0) return <>{normalizedSentence}</>;
+  const end = start + normalizedPart.length;
+  return <>{normalizedSentence.slice(0, start)}<mark className="mistake-tested-part">{normalizedSentence.slice(start, end)}</mark>{normalizedSentence.slice(end)}</>;
+};
+
 export function QuizResult({
   score,
   total,
@@ -50,9 +60,16 @@ export function QuizResult({
                 <span>{index + 1}</span>
                 <div>
                   <h3>{mistake.prompt}</h3>
-                  {mistake.selected && <p className="mistake-selected">내 답: {mistake.selected}</p>}
-                  <p className="mistake-answer">정답: {mistake.answer}</p>
-                  {mistake.explanation && <small>{mistake.explanation}</small>}
+                  {mistake.sourceSentence && (
+                    <div className="mistake-source-sentence">
+                      <small>전체 문장</small>
+                      <p><HighlightedMistakeSentence sentence={mistake.sourceSentence} testedPart={mistake.testedPart} /></p>
+                    </div>
+                  )}
+                  {mistake.testedPart && <p className="mistake-tested-copy"><b>출제 부분</b><span>{mistake.testedPart}</span></p>}
+                  {mistake.selected && <p className="mistake-selected"><b>내 답</b><span>{mistake.selected}</span></p>}
+                  <p className="mistake-answer"><b>정답</b><span>{mistake.answer}</span></p>
+                  {mistake.explanation && mistake.explanation.trim() !== mistake.sourceSentence?.trim() && <small className="mistake-explanation">{mistake.explanation}</small>}
                 </div>
               </article>
             ))}

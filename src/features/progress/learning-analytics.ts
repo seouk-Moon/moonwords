@@ -205,6 +205,9 @@ export function buildLearningAnalytics({
     if (Number.isNaN(date.getTime())) continue;
     const day = getDay(localDateKey(date));
     const seconds = Math.max(0, session.active_seconds ?? 0);
+    // Opening the quiz screen (including waiting for AI generation) is not a solved problem.
+    // A quiz-only session is counted only on a day that has at least one actual quiz answer.
+    if (session.view === "quiz" && day.quizAnswers === 0) continue;
     if (seconds > 0) day.hasActivity = true;
     day.minutes += seconds / 60;
   }

@@ -4,6 +4,7 @@ import { useState } from "react";
 import { cloudConfigured, configureSupabase, supabase } from "./lib/supabase";
 import { AppHeader } from "./components/layout/AppHeader";
 import { MobileBottomNav } from "./components/layout/MobileBottomNav";
+import { SiteFooter, type InfoPage } from "./components/layout/SiteFooter";
 import { Logo } from "./components/brand/Logo";
 import { AuthScreen } from "./features/auth/AuthScreen";
 import { UploadPanel } from "./features/upload/UploadPanel";
@@ -12,6 +13,7 @@ import { StudyView } from "./features/study/StudyView";
 import { Wordbook } from "./features/vocabulary/Wordbook";
 import { Quiz } from "./features/quiz/Quiz";
 import { GenerationToast } from "./features/quiz/GenerationToast";
+import { LegalPage } from "./features/legal/LegalPage";
 import { useStudyWorkspace } from "./hooks/useStudyWorkspace";
 import { useQuizGeneration } from "./hooks/useQuizGeneration";
 
@@ -24,6 +26,7 @@ export default function App({ supabaseUrl, supabasePublishableKey }: AppProps = 
   configureSupabase(supabaseUrl, supabasePublishableKey);
   const configured = cloudConfigured;
   const [uploadFolderId, setUploadFolderId] = useState<string | null>(null);
+  const [infoPage, setInfoPage] = useState<InfoPage | null>(null);
 
   const workspace = useStudyWorkspace(configured);
   const quizGeneration = useQuizGeneration({
@@ -39,7 +42,9 @@ export default function App({ supabaseUrl, supabasePublishableKey }: AppProps = 
   if (workspace.loading) {
     return <div className="loading-screen"><Logo /><p>내 학습실을 여는 중…</p></div>;
   }
-  if (configured && !workspace.session) return <AuthScreen />;
+  if (configured && !workspace.session) return infoPage
+    ? <div className="auth-with-footer"><LegalPage page={infoPage} onBack={() => setInfoPage(null)} /><SiteFooter onOpen={setInfoPage} /></div>
+    : <div className="auth-with-footer"><AuthScreen /><SiteFooter onOpen={setInfoPage} /></div>;
 
   return (
     <div className="app-shell">
@@ -48,7 +53,7 @@ export default function App({ supabaseUrl, supabasePublishableKey }: AppProps = 
         hasCurrent={Boolean(workspace.current)}
         configured={configured}
         session={workspace.session}
-        onView={workspace.setView}
+        onView={(view) => { setInfoPage(null); workspace.setView(view); }}
         onSignOut={() => { void supabase?.auth.signOut(); }}
       />
 
@@ -61,7 +66,7 @@ export default function App({ supabaseUrl, supabasePublishableKey }: AppProps = 
         />
       )}
 
-      {workspace.view === "library" && (
+      {!infoPage && workspace.view === "library" && (
         <LibraryPage
           documents={workspace.documents}
           folders={workspace.folders}
@@ -75,7 +80,7 @@ export default function App({ supabaseUrl, supabasePublishableKey }: AppProps = 
         />
       )}
 
-      {workspace.view === "upload" && workspace.session && (
+      {!infoPage && workspace.view === "upload" && workspace.session && (
         <UploadPanel
           userId={workspace.session.user.id}
           folderId={uploadFolderId}
@@ -84,7 +89,7 @@ export default function App({ supabaseUrl, supabasePublishableKey }: AppProps = 
         />
       )}
 
-      {workspace.current && workspace.view === "study" && (
+      {!infoPage && workspace.current && workspace.view === "study" && (
         <StudyView
           doc={workspace.current}
           words={workspace.words}
@@ -95,7 +100,7 @@ export default function App({ supabaseUrl, supabasePublishableKey }: AppProps = 
         />
       )}
 
-      {workspace.current && workspace.view === "words" && (
+      {!infoPage && workspace.current && workspace.view === "words" && (
         <Wordbook
           words={workspace.words}
           progress={workspace.progress}
@@ -105,7 +110,7 @@ export default function App({ supabaseUrl, supabasePublishableKey }: AppProps = 
         />
       )}
 
-      {workspace.current && workspace.view === "quiz" && (
+      {!infoPage && workspace.current && workspace.view === "quiz" && (
         <Quiz
           doc={workspace.current}
           words={workspace.words}
@@ -120,11 +125,15 @@ export default function App({ supabaseUrl, supabasePublishableKey }: AppProps = 
         />
       )}
 
-      <MobileBottomNav
+      {infoPage && <LegalPage page={infoPage} onBack={() => setInfoPage(null)} />}
+
+      {!infoPage && <MobileBottomNav
         view={workspace.view}
         hasCurrent={Boolean(workspace.current)}
-        onView={workspace.setView}
-      />
+        onView={(view) => { setInfoPage(null); workspace.setView(view); }}
+      />}
+
+      <SiteFooter onOpen={setInfoPage} />
     </div>
   );
 }

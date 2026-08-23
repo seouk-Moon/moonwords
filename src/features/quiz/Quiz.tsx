@@ -34,7 +34,9 @@ export function Quiz({ doc, words, progress, generationJob, onClose, onGenerate,
   const [writtenGraded, setWrittenGraded] = useState<boolean | null>(null);
   const [flashcardFlipped, setFlashcardFlipped] = useState(false);
   const [flashcardDragX, setFlashcardDragX] = useState(0);
-  const [flashcardRetryCount, setFlashcardRetryCount] = useState(0);
+  const [flashcardQueue, setFlashcardQueue] = useState<FlashcardQuestion[]>([]);
+  const [flashcardRetryByWord, setFlashcardRetryByWord] = useState<Record<string, number>>({});
+  const [answeredCount, setAnsweredCount] = useState(0);
   const flashcardPointerStart = useRef<number | null>(null);
   const flashcardDragCurrent = useRef(0);
 
@@ -97,6 +99,8 @@ export function Quiz({ doc, words, progress, generationJob, onClose, onGenerate,
           answerTokens: exercise.answerTokens,
           shuffledTokens: exercise.shuffledTokens,
           shortened: exercise.shortened,
+          sourceSentence: sentence.english,
+          testedPart: exercise.excerpt,
         }];
       });
     }
@@ -105,9 +109,15 @@ export function Quiz({ doc, words, progress, generationJob, onClose, onGenerate,
         const blank = word.source_sentence.replace(new RegExp(`\\b${word.word.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`, "i"), "______");
         const alternatives = shuffle([...new Set(quizWordsSnapshot.filter((item) => item.id !== word.id).map((item) => item.word))]).slice(0, 3);
         const options = shuffle([word.word, ...alternatives]);
-        return { kind: "choice", prompt: blank, options, answer: options.indexOf(word.word), explanation: `${word.word} — ${word.meaning}`, wordId: word.id };
+        return { kind: "choice", prompt: blank, options, answer: options.indexOf(word.word), explanation: `${word.word} — ${word.meaning}`, wordId: word.id, sourceSentence: word.source_sentence, testedPart: word.word };
       });
-      const generatedQuestions = (doc.analysis.cloze_questions ?? []).map((question): ChoiceQuizQuestion => ({ kind: "choice", prompt: question.question, options: question.options, answer: question.answer, explanation: question.explanation }));
+      const generatedQuestions = (doc.analysis.cloze_questions ?? []).map((question): ChoiceQuizQuestion => {
+        const answerText = question.options[question.answer] ?? "";
+        const sourceSentence = answerText && /_{3,}/.test(question.question)
+          ? question.question.replace(/_{3,}/, answerText)
+          : undefined;
+        return { kind: "choice", prompt: question.question, options: question.options, answer: question.answer, explanation: question.explanation, sourceSentence, testedPart: answerText || undefined };
+      });
       const pool = shuffle([...savedWordQuestions, ...generatedQuestions]);
       return vocabUseAll ? pool : pool.slice(0, Math.min(Math.max(vocabCount, 1), pool.length));
     }
@@ -120,31 +130,33 @@ export function Quiz({ doc, words, progress, generationJob, onClose, onGenerate,
       example: word.source_sentence,
       translation: word.translation,
       wordId: word.id,
+      sourceSentence: word.source_sentence,
+      testedPart: word.word,
     }));
     if (mode === "meaning") return targetWords.map((word): ChoiceQuizQuestion | WrittenQuizQuestion => {
       const prompt = vocabDirection === "english-korean" ? `“${word.word}”의 뜻은?` : `“${word.meaning}”에 해당하는 영어 단어는?`;
       const answerText = vocabDirection === "english-korean" ? word.meaning : word.word;
-      if (vocabFormat === "written") return { kind: "written", prompt, answerText, explanation: `${word.source_sentence}\n${word.translation}`, wordId: word.id };
+      if (vocabFormat === "written") return { kind: "written", prompt, answerText, explanation: `${word.source_sentence}\n${word.translation}`, wordId: word.id, sourceSentence: word.source_sentence, testedPart: word.word };
       const candidates = quizWordsSnapshot.filter((item) => item.id !== word.id).map((item) => vocabDirection === "english-korean" ? item.meaning : item.word);
       const alternatives = shuffle([...new Set(candidates.filter((candidate) => candidate !== answerText))]).slice(0, 3);
       const options = shuffle([answerText, ...alternatives]);
-      return { kind: "choice", prompt, options, answer: options.indexOf(answerText), explanation: word.source_sentence, wordId: word.id };
+      return { kind: "choice", prompt, options, answer: options.indexOf(answerText), explanation: word.source_sentence, wordId: word.id, sourceSentence: word.source_sentence, testedPart: word.word };
     });
     return [];
   }, [mode, quizWordsSnapshot, doc, orderingScope, selectedSentenceIds, shortenLongSentence, progress.bookmarked_sentence_ids, activeComprehensionIds, vocabDirection, vocabFormat, vocabUseAll, vocabCount, quizRun]);
 
   useEffect(() => {
-    if (!done || !started || !questions.length || completedRunRef.current === quizRun) return;
+    if (!done || !started || answeredCount <= 0 || completedRunRef.current === quizRun) return;
     completedRunRef.current = quizRun;
-    onQuizComplete(mode, score, questions.length);
-  }, [done, started, questions.length, quizRun, mode, score, onQuizComplete]);
+    onQuizComplete(mode, score, answeredCount);
+  }, [done, started, answeredCount, quizRun, mode, score, onQuizComplete]);
 
   const clearAnswer = () => {
     setPicked(null); setOrderedTokenIds([]); setOrderingSubmitted(false); setOrderingCorrect(false);
     flashcardDragCurrent.current = 0;
-    setWrittenAnswer(""); setWrittenRevealed(false); setWrittenGraded(null); setFlashcardFlipped(false); setFlashcardDragX(0); setFlashcardRetryCount(0);
+    setWrittenAnswer(""); setWrittenRevealed(false); setWrittenGraded(null); setFlashcardFlipped(false); setFlashcardDragX(0);
   };
-  const clearRun = () => { setIndex(0); setScore(0); setDone(false); setRunMistakes([]); clearAnswer(); };
+  const clearRun = () => { setIndex(0); setScore(0); setAnsweredCount(0); setDone(false); setRunMistakes([]); setFlashcardQueue([]); setFlashcardRetryByWord({}); clearAnswer(); };
   const prepareComprehension = (scope = comprehensionScope, useAll = comprehensionUseAll, count = comprehensionCount) => {
     const allIds = doc.analysis.questions.map((_, questionIndex) => questionIndex);
     const pool = scope === "incorrect" ? missedComprehensionIds.filter((id) => allIds.includes(id)) : allIds;
@@ -158,7 +170,12 @@ export function Quiz({ doc, words, progress, generationJob, onClose, onGenerate,
   };
   const startQuiz = () => {
     if (mode === "comprehension") prepareComprehension(comprehensionScope, comprehensionUseAll, comprehensionCount);
-    else { setQuizRun((value) => value + 1); clearRun(); }
+    else if (mode === "flashcard") {
+      const queue = questions.filter((item): item is FlashcardQuestion => item.kind === "flashcard");
+      setQuizRun((value) => value + 1);
+      clearRun();
+      setFlashcardQueue(queue);
+    } else { setQuizRun((value) => value + 1); clearRun(); }
     setStarted(true);
   };
   const saveMissedComprehensionIds = (questionId: number, correct: boolean) => {
@@ -182,6 +199,7 @@ export function Quiz({ doc, words, progress, generationJob, onClose, onGenerate,
     const question = questions[index];
     if (picked !== null || question?.kind !== "choice") return;
     setPicked(choice);
+    setAnsweredCount((value) => value + 1);
     const correct = choice === question.answer;
     if (correct) setScore((value) => value + 1);
     else rememberMistake({
@@ -190,6 +208,8 @@ export function Quiz({ doc, words, progress, generationJob, onClose, onGenerate,
       selected: question.options[choice] ?? "",
       answer: question.options[question.answer] ?? "",
       explanation: question.explanation,
+      sourceSentence: question.sourceSentence,
+      testedPart: question.testedPart,
     });
     if (question.sourceQuestionId !== undefined) saveMissedComprehensionIds(question.sourceQuestionId, correct);
     onResult(question.wordId, correct);
@@ -199,6 +219,7 @@ export function Quiz({ doc, words, progress, generationJob, onClose, onGenerate,
     const question = questions[index];
     if (question?.kind !== "written" || writtenGraded !== null) return;
     setWrittenGraded(correct);
+    setAnsweredCount((value) => value + 1);
     if (correct) setScore((value) => value + 1);
     else rememberMistake({
       id: `written:${quizRun}:${index}:${question.wordId}`,
@@ -206,31 +227,38 @@ export function Quiz({ doc, words, progress, generationJob, onClose, onGenerate,
       selected: writtenAnswer,
       answer: question.answerText,
       explanation: question.explanation,
+      sourceSentence: question.sourceSentence,
+      testedPart: question.testedPart,
     });
     onResult(question.wordId, correct);
     onQuestionAnswered(mode, correct, { wordId: question.wordId });
   };
   const gradeFlashcard = (correct: boolean) => {
-    const question = questions[index];
-    if (question?.kind !== "flashcard" || !flashcardFlipped) return;
+    const question = flashcardQueue[index];
+    if (!question || !flashcardFlipped) return;
     onResult(question.wordId, correct);
     onQuestionAnswered(mode, correct, { wordId: question.wordId });
+    setAnsweredCount((value) => value + 1);
     flashcardDragCurrent.current = 0;
     setFlashcardDragX(0);
     if (correct) {
       setScore((value) => value + 1);
-      if (index + 1 >= questions.length) setDone(true);
+      if (index + 1 >= flashcardQueue.length) setDone(true);
       else { setIndex((value) => value + 1); clearAnswer(); }
     } else {
       rememberMistake({
-        id: `flashcard:${quizRun}:${index}:${question.wordId}`,
+        id: `flashcard:${quizRun}:${question.wordId}`,
         prompt: question.front,
         selected: "다시 보기",
         answer: question.back,
         explanation: question.example,
+        sourceSentence: question.sourceSentence,
+        testedPart: question.testedPart,
       });
-      setFlashcardRetryCount((value) => value + 1);
-      setFlashcardFlipped(false);
+      setFlashcardRetryByWord((items) => ({ ...items, [question.wordId]: (items[question.wordId] ?? 0) + 1 }));
+      setFlashcardQueue((items) => [...items, question]);
+      setIndex((value) => value + 1);
+      clearAnswer();
     }
   };
   const submitOrdering = () => {
@@ -239,6 +267,7 @@ export function Quiz({ doc, words, progress, generationJob, onClose, onGenerate,
     const answerTokens = orderedTokenIds.map((id) => question.shuffledTokens.find((token) => token.id === id)?.text ?? "");
     const correct = answerTokens.every((token, tokenIndex) => token === question.answerTokens[tokenIndex]);
     setOrderingCorrect(correct); setOrderingSubmitted(true);
+    setAnsweredCount((value) => value + 1);
     onQuestionAnswered(mode, correct, { sentenceId: question.sentenceId });
     if (correct) setScore((value) => value + 1);
     else rememberMistake({
@@ -247,6 +276,8 @@ export function Quiz({ doc, words, progress, generationJob, onClose, onGenerate,
       selected: answerTokens.join(" "),
       answer: question.answerTokens.join(" "),
       explanation: question.explanation,
+      sourceSentence: question.sourceSentence,
+      testedPart: question.testedPart,
     });
   };
   const next = () => {
@@ -295,9 +326,10 @@ export function Quiz({ doc, words, progress, generationJob, onClose, onGenerate,
     prepareComprehension("all", true, doc.analysis.questions.length);
   };
 
-  const question = questions[index];
+  const question = mode === "flashcard" && started ? flashcardQueue[index] : questions[index];
   const selectedOrderingTokens = question?.kind === "ordering" ? orderedTokenIds.map((id) => question.shuffledTokens.find((token) => token.id === id)).filter((token): token is { id: string; text: string } => Boolean(token)) : [];
   const availableOrderingTokens = question?.kind === "ordering" ? question.shuffledTokens.filter((token) => !orderedTokenIds.includes(token.id)) : [];
+  const currentFlashcardRetryCount = question?.kind === "flashcard" ? (flashcardRetryByWord[question.wordId] ?? 0) : 0;
   const availableComprehensionCount = comprehensionScope === "incorrect" ? missedComprehensionIds.length : doc.analysis.questions.length;
   const emptyTitle = mode === "comprehension" && comprehensionScope === "incorrect" ? "현재 저장된 본문 이해 오답이 없어요." : mode === "ordering" ? orderingScope === "difficult" ? "‘어려운 문장’으로 체크한 문장이 없어요." : "출제할 문장을 선택해 주세요." : "단어 퀴즈를 만들 단어가 없어요.";
   const emptyDescription = mode === "comprehension" ? "전체 문제에서 새로 풀거나, 틀린 문제가 생기면 오답만 다시 풀 수 있어요." : mode === "ordering" ? orderingScope === "difficult" ? "본문 학습에서 문장에 ‘어려운 문장 체크’를 표시해 주세요." : "직접 선택에서 한 문장 이상 골라 주세요." : "본문에서 단어를 저장한 뒤 다시 시작해 주세요.";
@@ -324,7 +356,7 @@ export function Quiz({ doc, words, progress, generationJob, onClose, onGenerate,
 
     {!started && mode === "ordering" && <section className="ordering-setup">
       <div className="ordering-setting"><strong>출제 범위</strong><div className="scope-buttons"><button className={orderingScope === "all" ? "active" : ""} onClick={() => updateOrderingScope("all")}>전체 문장</button><button className={orderingScope === "difficult" ? "active" : ""} onClick={() => updateOrderingScope("difficult")}>어려운 문장 체크</button><button className={orderingScope === "selected" ? "active" : ""} onClick={() => updateOrderingScope("selected")}>직접 선택</button></div><button className="reshuffle-button" onClick={() => reset("ordering")}>↻ 문장·단어 다시 섞기</button></div>
-      <label className="excerpt-toggle"><input type="checkbox" checked={shortenLongSentence} onChange={(event) => { setShortenLongSentence(event.target.checked); reset("ordering"); }} /><span><b>긴 문장은 핵심 일부만 출제</b><small>짧은 문장은 전체를 사용하고, 긴 문장은 의미 있는 구간으로 나눕니다.</small></span></label>
+      <label className="excerpt-toggle"><input type="checkbox" checked={shortenLongSentence} onChange={(event) => { setShortenLongSentence(event.target.checked); reset("ordering"); }} /><span><b>긴 문장은 핵심 일부만 출제</b><small>짧은 문장은 전체를 사용하고, 긴 문장은 관계사·접속사·완료/수동·준동사 등 중요 문법이 있는 구간을 우선 골라요.</small></span></label>
       {orderingScope === "difficult" && <p className="scope-summary">‘어려운 문장’으로 체크한 문장 {progress.bookmarked_sentence_ids.length}개를 매번 섞어서 출제합니다.</p>}
       {orderingScope === "selected" && <div className="sentence-picker"><header><span>원하는 문장을 골라 주세요.</span><div><button onClick={() => { setSelectedSentenceIds(doc.analysis.sentences.map((sentence) => sentence.id)); reset("ordering"); }}>전체 선택</button><button onClick={() => { setSelectedSentenceIds([]); reset("ordering"); }}>선택 해제</button></div></header>{doc.analysis.sentences.map((sentence) => <label key={sentence.id}><input type="checkbox" checked={selectedSentenceIds.includes(sentence.id)} onChange={() => updateSentenceSelection(sentence.id)} /><span><b>{sentence.id}</b>{sentence.english}</span></label>)}</div>}
     </section>}
@@ -339,7 +371,7 @@ export function Quiz({ doc, words, progress, generationJob, onClose, onGenerate,
     {started && (!questions.length ? <div className="empty-state"><b>{emptyTitle}</b><p>{emptyDescription}</p></div> : done ? <QuizResult
       score={score}
       total={questions.length}
-      summary={score === questions.length && runMistakes.length === 0 ? "완벽해요!" : mode === "comprehension" ? `현재 본문 이해 오답 ${missedComprehensionIds.length}개가 저장되어 있어요.` : mode === "ordering" ? "오답을 확인한 뒤 다시 배열해 보세요." : mode === "flashcard" ? "헷갈렸던 카드는 오답 확인에서 다시 볼 수 있어요." : "틀린 단어와 정답을 바로 확인할 수 있어요."}
+      summary={score === questions.length && runMistakes.length === 0 ? "완벽해요!" : mode === "comprehension" ? `현재 본문 이해 오답 ${missedComprehensionIds.length}개가 저장되어 있어요.` : mode === "ordering" ? "오답을 확인한 뒤 다시 배열해 보세요." : mode === "flashcard" ? "모른다고 표시한 카드는 남은 카드 뒤로 보내 다시 확인했어요." : "틀린 단어와 정답을 바로 확인할 수 있어요."}
       mistakes={runMistakes}
       canRetryIncorrect={mode === "comprehension" && missedComprehensionIds.length > 0}
       onRetryIncorrect={retryIncorrect}
@@ -351,6 +383,6 @@ export function Quiz({ doc, words, progress, generationJob, onClose, onGenerate,
       <div className={`ordering-answer ${orderingSubmitted ? orderingCorrect ? "correct" : "wrong" : ""}`}>{selectedOrderingTokens.length ? selectedOrderingTokens.map((token) => <button key={token.id} disabled={orderingSubmitted} onClick={() => setOrderedTokenIds((ids) => ids.filter((id) => id !== token.id))}>{token.text}</button>) : <span>아래 단어를 순서대로 선택하세요.</span>}</div>
       <div className="ordering-bank">{availableOrderingTokens.map((token) => <button key={token.id} disabled={orderingSubmitted} onClick={() => setOrderedTokenIds((ids) => [...ids, token.id])}>{token.text}</button>)}</div>
       {!orderingSubmitted ? <div className="ordering-actions"><button onClick={() => setOrderedTokenIds([])} disabled={!orderedTokenIds.length}>초기화</button><button className="primary-button" onClick={submitOrdering} disabled={orderedTokenIds.length !== question.answerTokens.length}>채점하기</button></div> : <div className="answer-note"><b>{orderingCorrect ? "정답입니다" : "정답을 확인하세요"}</b><p>{question.answerTokens.join(" ")}</p><button onClick={next}>{index + 1 === questions.length ? "결과 보기" : "다음 문제 →"}</button></div>}
-    </section> : question?.kind === "written" ? <section className="quiz-card written-card"><header><span>{index + 1} / {questions.length}</span><div><i style={{ width: `${((index + 1) / questions.length) * 100}%` }} /></div><b>{score} correct</b></header><h2>{question.prompt}</h2><div className="written-response"><input autoFocus value={writtenAnswer} disabled={writtenRevealed} onChange={(event) => setWrittenAnswer(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter" && writtenAnswer.trim()) setWrittenRevealed(true); }} placeholder="정답을 직접 입력하세요" /><button className="primary-button" disabled={!writtenAnswer.trim() || writtenRevealed} onClick={() => setWrittenRevealed(true)}>정답 확인</button></div>{writtenRevealed && <div className="answer-note written-note"><b>정답: {question.answerText}</b><p>내 답: {writtenAnswer}</p><p className="example-note">{question.explanation}</p>{writtenGraded === null ? <div className="self-grade"><span>내 답을 스스로 채점해 주세요.</span><button onClick={() => gradeWritten(false)}>틀렸어요</button><button className="correct-button" onClick={() => gradeWritten(true)}>맞았어요</button></div> : <><strong>{writtenGraded ? "정답으로 기록했습니다." : "오답으로 기록했습니다."}</strong><button onClick={next}>{index + 1 === questions.length ? "결과 보기" : "다음 문제 →"}</button></>}</div>}</section> : question?.kind === "flashcard" ? <section className="quiz-card flashcard-wrap"><header><span>{index + 1} / {questions.length}</span><div><i style={{ width: `${((index + 1) / questions.length) * 100}%` }} /></div><b>{score} memorized</b></header><div className="flashcard-stage"><span className="swipe-label retry" style={{ opacity: Math.max(0, -flashcardDragX / 90) }}>다시 보기</span><span className="swipe-label learned" style={{ opacity: Math.max(0, flashcardDragX / 90) }}>외웠어요</span><div role="button" tabIndex={0} className={`flashcard ${flashcardFlipped ? "flipped" : ""}`} style={{ transform: `translateX(${flashcardDragX}px) rotate(${flashcardDragX / 18}deg)` }} onClick={() => { if (!flashcardFlipped) setFlashcardFlipped(true); }} onKeyDown={(event) => { if ((event.key === "Enter" || event.key === " ") && !flashcardFlipped) setFlashcardFlipped(true); }} onPointerDown={beginFlashcardSwipe} onPointerMove={moveFlashcardSwipe} onPointerUp={endFlashcardSwipe} onPointerCancel={endFlashcardSwipe}><span>{flashcardFlipped ? "BACK" : "FRONT"}</span><strong>{flashcardFlipped ? question.back : question.front}</strong>{flashcardFlipped ? <small>{question.example}<em>{question.translation}</em></small> : <small>카드를 눌러 답을 확인하세요.</small>}</div></div><p className="flashcard-swipe-help">답을 확인한 뒤 왼쪽은 ‘다시 보기’, 오른쪽은 ‘외웠어요’로 밀어 주세요.{flashcardRetryCount > 0 && <b> · 이 카드 재도전 {flashcardRetryCount}회</b>}</p>{flashcardFlipped && <div className="flashcard-actions"><button onClick={() => gradeFlashcard(false)}>← 다시 보기</button><button className="primary-button" onClick={() => gradeFlashcard(true)}>외웠어요 →</button></div>}</section> : question?.kind === "choice" ? <section className="quiz-card"><header><span>{index + 1} / {questions.length}</span><div><i style={{ width: `${((index + 1) / questions.length) * 100}%` }} /></div><b>{score} correct</b></header><h2>{question.prompt}</h2><div className="options">{question.options.map((option, optionIndex) => <button key={`${option}-${optionIndex}`} className={picked === null ? "" : optionIndex === question.answer ? "correct" : optionIndex === picked ? "wrong" : "muted"} onClick={() => answer(optionIndex)}><span>{String.fromCharCode(65 + optionIndex)}</span>{option}</button>)}</div>{picked !== null && <div className="answer-note"><b>{picked === question.answer ? "정답입니다" : "정답을 확인하세요"}</b><p>{question.explanation}</p><button onClick={next}>{index + 1 === questions.length ? "결과 보기" : "다음 문제 →"}</button></div>}</section> : null)}
+    </section> : question?.kind === "written" ? <section className="quiz-card written-card"><header><span>{index + 1} / {questions.length}</span><div><i style={{ width: `${((index + 1) / questions.length) * 100}%` }} /></div><b>{score} correct</b></header><h2>{question.prompt}</h2><div className="written-response"><input autoFocus value={writtenAnswer} disabled={writtenRevealed} onChange={(event) => setWrittenAnswer(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter" && writtenAnswer.trim()) setWrittenRevealed(true); }} placeholder="정답을 직접 입력하세요" /><button className="primary-button" disabled={!writtenAnswer.trim() || writtenRevealed} onClick={() => setWrittenRevealed(true)}>정답 확인</button></div>{writtenRevealed && <div className="answer-note written-note"><b>정답: {question.answerText}</b><p>내 답: {writtenAnswer}</p><p className="example-note">{question.explanation}</p>{writtenGraded === null ? <div className="self-grade"><span>내 답을 스스로 채점해 주세요.</span><button onClick={() => gradeWritten(false)}>틀렸어요</button><button className="correct-button" onClick={() => gradeWritten(true)}>맞았어요</button></div> : <><strong>{writtenGraded ? "정답으로 기록했습니다." : "오답으로 기록했습니다."}</strong><button onClick={next}>{index + 1 === questions.length ? "결과 보기" : "다음 문제 →"}</button></>}</div>}</section> : question?.kind === "flashcard" ? <section className="quiz-card flashcard-wrap"><header><span>{Math.min(index + 1, flashcardQueue.length)} / {flashcardQueue.length}</span><div><i style={{ width: `${flashcardQueue.length ? (Math.min(index + 1, flashcardQueue.length) / flashcardQueue.length) * 100 : 0}%` }} /></div><b>{score} memorized</b></header><div className="flashcard-stage"><span className="swipe-label retry" style={{ opacity: Math.max(0, -flashcardDragX / 90) }}>다시 보기</span><span className="swipe-label learned" style={{ opacity: Math.max(0, flashcardDragX / 90) }}>외웠어요</span><div role="button" tabIndex={0} className={`flashcard ${flashcardFlipped ? "flipped" : ""}`} style={{ transform: `translateX(${flashcardDragX}px) rotate(${flashcardDragX / 18}deg)` }} onClick={() => { if (!flashcardFlipped) setFlashcardFlipped(true); }} onKeyDown={(event) => { if ((event.key === "Enter" || event.key === " ") && !flashcardFlipped) setFlashcardFlipped(true); }} onPointerDown={beginFlashcardSwipe} onPointerMove={moveFlashcardSwipe} onPointerUp={endFlashcardSwipe} onPointerCancel={endFlashcardSwipe}><span>{flashcardFlipped ? "BACK" : "FRONT"}</span><strong>{flashcardFlipped ? question.back : question.front}</strong>{flashcardFlipped ? <small>{question.example}<em>{question.translation}</em></small> : <small>카드를 눌러 답을 확인하세요.</small>}</div></div><p className="flashcard-swipe-help">답을 확인한 뒤 왼쪽은 ‘다시 보기’, 오른쪽은 ‘외웠어요’로 밀어 주세요.{currentFlashcardRetryCount > 0 && <b> · 이 카드 재도전 {currentFlashcardRetryCount}회</b>}</p>{flashcardFlipped && <div className="flashcard-actions"><button onClick={() => gradeFlashcard(false)}>← 다시 보기</button><button className="primary-button" onClick={() => gradeFlashcard(true)}>외웠어요 →</button></div>}</section> : question?.kind === "choice" ? <section className="quiz-card"><header><span>{index + 1} / {questions.length}</span><div><i style={{ width: `${((index + 1) / questions.length) * 100}%` }} /></div><b>{score} correct</b></header><h2>{question.prompt}</h2><div className="options">{question.options.map((option, optionIndex) => <button key={`${option}-${optionIndex}`} className={picked === null ? "" : optionIndex === question.answer ? "correct" : optionIndex === picked ? "wrong" : "muted"} onClick={() => answer(optionIndex)}><span>{String.fromCharCode(65 + optionIndex)}</span>{option}</button>)}</div>{picked !== null && <div className="answer-note"><b>{picked === question.answer ? "정답입니다" : "정답을 확인하세요"}</b><p>{question.explanation}</p><button onClick={next}>{index + 1 === questions.length ? "결과 보기" : "다음 문제 →"}</button></div>}</section> : null)}
   </main>;
 }

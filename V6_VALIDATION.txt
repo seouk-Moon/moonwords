@@ -1,0 +1,10 @@
+MoonWords V6 validation — 2026-08-23
+
+PASS  Modified TypeScript/TSX syntax transpile check
+PASS  Strict TypeScript check for app-types, learning analytics, document types, and ordering quiz logic
+PASS  Learning-record regression: quiz screen/generation only => 0 solved questions, 0 quiz-only study minutes, no active study day
+PASS  Learning-record regression: actual quiz answer => solved count and quiz activity recorded
+PASS  Ordering excerpt grammar-priority smoke tests
+PASS  git diff --check
+
+NOTE  Full npm/Vite build could not be executed in this container because npm dependency installation terminated with npm's internal "Exit handler never called" error. This was an environment/package-manager failure; source-level checks above completed successfully.

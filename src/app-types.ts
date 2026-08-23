@@ -23,6 +23,8 @@ export type ChoiceQuizQuestion = {
   explanation: string;
   wordId?: string;
   sourceQuestionId?: number;
+  sourceSentence?: string;
+  testedPart?: string;
 };
 
 export type WrittenQuizQuestion = {
@@ -31,6 +33,8 @@ export type WrittenQuizQuestion = {
   answerText: string;
   explanation: string;
   wordId: string;
+  sourceSentence?: string;
+  testedPart?: string;
 };
 
 export type FlashcardQuestion = {
@@ -40,6 +44,8 @@ export type FlashcardQuestion = {
   example: string;
   translation: string;
   wordId: string;
+  sourceSentence?: string;
+  testedPart?: string;
 };
 
 export type OrderingQuizQuestion = {
@@ -56,6 +62,8 @@ export type OrderingQuizQuestion = {
   answerTokens: string[];
   shuffledTokens: Array<{ id: string; text: string }>;
   shortened: boolean;
+  sourceSentence: string;
+  testedPart: string;
 };
 
 export type QuizQuestion = ChoiceQuizQuestion | WrittenQuizQuestion | FlashcardQuestion | OrderingQuizQuestion;
@@ -66,6 +74,8 @@ export type QuizMistakeReviewItem = {
   selected?: string;
   answer: string;
   explanation?: string;
+  sourceSentence?: string;
+  testedPart?: string;
 };
 
 export type SelectedWord = {
