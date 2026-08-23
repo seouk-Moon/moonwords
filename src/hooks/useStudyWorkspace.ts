@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import type { Session } from "@supabase/supabase-js";
 import { demoDocument } from "../demo";
 import { supabase } from "../lib/supabase";
+import { clearAuthParamsFromUrl } from "../lib/auth-url";
 import { uid } from "../lib/app-utils";
 import type { View } from "../app-types";
 import type { DocumentFolder, StudyDocument, StudyProgress, VocabularyItem } from "../types";
@@ -31,11 +32,16 @@ export function useStudyWorkspace(configured: boolean) {
 
   useEffect(() => {
     if (!supabase) return;
+    clearAuthParamsFromUrl();
     supabase.auth.getSession().then(({ data }) => {
       setSession(data.session);
+      if (data.session) clearAuthParamsFromUrl();
       setLoading(false);
     });
-    const { data } = supabase.auth.onAuthStateChange((_event, next) => setSession(next));
+    const { data } = supabase.auth.onAuthStateChange((_event, next) => {
+      setSession(next);
+      if (next) clearAuthParamsFromUrl();
+    });
     return () => data.subscription.unsubscribe();
   }, []);
 

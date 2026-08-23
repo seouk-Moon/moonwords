@@ -8,7 +8,8 @@ import { HighlightedEnglish } from "./HighlightedEnglish";
 export function StudyView({ doc, words, progress, onSaveWord, onDeleteWord, onProgress }: { doc: StudyDocument; words: VocabularyItem[]; progress: StudyProgress; onSaveWord: (word: Omit<VocabularyItem, "id" | "user_id" | "created_at" | "updated_at">) => Promise<void>; onDeleteWord: (id: string) => Promise<void>; onProgress: (next: StudyProgress) => void }) {
   const [selected, setSelected] = useState<SelectedWord | null>(null);
   const [loadingMeaning, setLoadingMeaning] = useState(false);
-  const [lookupHighlight, setLookupHighlight] = useState<{ word: string; sentenceId: number; loading: boolean } | null>(null);
+  const [lookupHighlight, setLookupHighlight] = useState<{ word: string; sentenceId: number; status: "loading" | "done" | "error" } | null>(null);
+  const [lookupNotice, setLookupNotice] = useState("");
   const [listeningState, setListeningState] = useState<"idle" | "playing" | "paused">("idle");
   const [speakingSentenceId, setSpeakingSentenceId] = useState<number | null>(null);
   const [showOriginal, setShowOriginal] = useState(false);
@@ -16,6 +17,7 @@ export function StudyView({ doc, words, progress, onSaveWord, onDeleteWord, onPr
   const popoverRef = useRef<HTMLDivElement>(null);
   const meaningCache = useRef(new Map<string, string>());
   const activeLookup = useRef("");
+  const lookupNoticeTimer = useRef<number | null>(null);
   const listeningRun = useRef(0);
   const playNext = useRef<(index: number, run: number) => void>(() => undefined);
   const sentences = doc.analysis.sentences;
@@ -42,25 +44,36 @@ export function StudyView({ doc, words, progress, onSaveWord, onDeleteWord, onPr
     setSelected({ word, sentenceId, meaning: immediateMeaning, savedId: saved?.id, x: Math.max(12, Math.min(rect.left, window.innerWidth - 322)), y: Math.max(12, Math.min(rect.bottom + 10, window.innerHeight - 220)) });
     if (!immediateMeaning && supabase) {
       activeLookup.current = cacheKey;
-      setLookupHighlight({ word, sentenceId, loading: true });
+      setLookupHighlight({ word, sentenceId, status: "loading" });
+      setLookupNotice("");
+      if (lookupNoticeTimer.current !== null) window.clearTimeout(lookupNoticeTimer.current);
       setLoadingMeaning(true);
+      let lookupSucceeded = false;
       try {
         const response = await supabase.functions.invoke("process-document", { body: { action: "define", word, sentence: sentence.english, translation: sentence.korean } });
         if (!response.error && response.data?.meaning) {
           meaningCache.current.set(cacheKey, response.data.meaning);
+          lookupSucceeded = true;
           setSelected((current) => current && current.sentenceId === sentenceId && current.word === word ? { ...current, meaning: response.data.meaning } : current);
         }
       } finally {
         if (activeLookup.current === cacheKey) {
           setLoadingMeaning(false);
-          setLookupHighlight((current) => current && current.sentenceId === sentenceId && current.word === word ? { ...current, loading: false } : current);
+          const finalStatus = lookupSucceeded ? "done" : "error";
+          setLookupHighlight((current) => current && current.sentenceId === sentenceId && current.word === word ? { ...current, status: finalStatus } : current);
+          setLookupNotice(lookupSucceeded ? `✓ ${word} 뜻을 찾았어요` : `${word} 뜻을 찾지 못했어요`);
+          lookupNoticeTimer.current = window.setTimeout(() => setLookupNotice(""), 2200);
           window.setTimeout(() => {
-            setLookupHighlight((current) => current && current.sentenceId === sentenceId && current.word === word && !current.loading ? null : current);
-          }, 1800);
+            setLookupHighlight((current) => current && current.sentenceId === sentenceId && current.word === word && current.status !== "loading" ? null : current);
+          }, 2200);
         }
       }
     }
   }, [sentences, words]);
+
+  useEffect(() => () => {
+    if (lookupNoticeTimer.current !== null) window.clearTimeout(lookupNoticeTimer.current);
+  }, []);
 
   const openSavedWord = useCallback((word: VocabularyItem, element: HTMLButtonElement) => {
     const rect = element.getBoundingClientRect();
@@ -246,7 +259,7 @@ export function StudyView({ doc, words, progress, onSaveWord, onDeleteWord, onPr
               const sentenceWords = words.filter((word) => word.sentence_id === sentence.id);
               return <div className={`sentence-pair ${understood.includes(sentence.id) ? "understood" : ""} ${difficultSentences.includes(sentence.id) ? "difficult" : ""} ${speakingSentenceId === sentence.id ? "listening" : ""}`} data-sentence={sentence.id} key={sentence.id}>
                 <div className="sentence-number">{sentence.marked && <span className="source-mark" title="원본 밑줄 표시">★</span>}{sentence.id}</div>
-                <div className="sentence-copy"><p className="english"><HighlightedEnglish text={sentence.english} words={sentenceWords} onOpen={openSavedWord} transientWord={lookupHighlight?.sentenceId === sentence.id ? lookupHighlight.word : undefined} transientLoading={lookupHighlight?.sentenceId === sentence.id && lookupHighlight.loading} /></p><p className="korean">{sentence.korean}</p><div className="sentence-actions"><button onClick={() => speak(sentence.english)}>◉ 듣기</button><button onClick={() => toggle("understood_sentence_ids", sentence.id)}>{understood.includes(sentence.id) ? "✓ 이해함" : "○ 이해 체크"}</button><button onClick={() => toggle("bookmarked_sentence_ids", sentence.id)}>{difficultSentences.includes(sentence.id) ? "⚑ 어려운 문장 해제" : "⚐ 어려운 문장 체크"}</button></div></div>
+                <div className="sentence-copy"><p className="english"><HighlightedEnglish text={sentence.english} words={sentenceWords} onOpen={openSavedWord} transientWord={lookupHighlight?.sentenceId === sentence.id ? lookupHighlight.word : undefined} transientStatus={lookupHighlight?.sentenceId === sentence.id ? lookupHighlight.status : undefined} /></p><p className="korean">{sentence.korean}</p><div className="sentence-actions"><button onClick={() => speak(sentence.english)}>◉ 듣기</button><button onClick={() => toggle("understood_sentence_ids", sentence.id)}>{understood.includes(sentence.id) ? "✓ 이해함" : "○ 이해 체크"}</button><button onClick={() => toggle("bookmarked_sentence_ids", sentence.id)}>{difficultSentences.includes(sentence.id) ? "⚑ 어려운 문장 해제" : "⚐ 어려운 문장 체크"}</button></div></div>
               </div>;
             })}
           </section>)}
@@ -264,6 +277,8 @@ export function StudyView({ doc, words, progress, onSaveWord, onDeleteWord, onPr
           <article className="original-source-text">{doc.original_text?.trim() || sentences.map((sentence) => sentence.english).join("\n\n")}</article>
         </aside>
       </>}
+
+      {lookupNotice && <div className={`lookup-complete-toast ${lookupHighlight?.status === "error" ? "error" : ""}`} role="status" aria-live="polite">{lookupNotice}</div>}
 
       {selected && <div ref={popoverRef} className="selection-popover" style={{ left: selected.x, top: selected.y }}>
         <small>{selected.savedId ? "SAVED WORD" : "MEANING"}</small>

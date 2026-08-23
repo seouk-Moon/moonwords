@@ -13,7 +13,7 @@ export let supabase: SupabaseClient | null = cloudConfigured
       auth: {
         persistSession: true,
         autoRefreshToken: true,
-        detectSessionInUrl: true,
+        detectSessionInUrl: false,
       },
     })
   : null;
@@ -26,7 +26,7 @@ export const configureSupabase = (url?: string, publishableKey?: string) => {
       auth: {
         persistSession: true,
         autoRefreshToken: true,
-        detectSessionInUrl: true,
+        detectSessionInUrl: false,
       },
     });
     cloudConfigured = true;

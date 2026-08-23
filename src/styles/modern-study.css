@@ -1451,3 +1451,49 @@ button { font-weight: 650; }
   .reading-head-actions { grid-template-columns: auto auto; }
   .reading-head-actions small { grid-column: 1 / -1; }
 }
+
+/* Revision 2026-08-24 — explicit mobile dictionary lookup completion feedback. */
+.lookup-word-highlight.done {
+  background: #dcfce7;
+  box-shadow: inset 0 -3px 0 #22c55e, 0 0 0 2px rgba(34, 197, 94, .12);
+  animation: lookup-complete-pulse .42s ease-out;
+}
+.lookup-word-highlight.error {
+  background: #fef3c7;
+  box-shadow: inset 0 -3px 0 #f59e0b;
+}
+@keyframes lookup-complete-pulse {
+  0% { transform: scale(.98); }
+  55% { transform: scale(1.035); }
+  100% { transform: scale(1); }
+}
+.lookup-complete-toast {
+  position: fixed;
+  left: 50%;
+  bottom: 24px;
+  z-index: 80;
+  transform: translateX(-50%);
+  max-width: min(88vw, 420px);
+  border: 1px solid #bbf7d0;
+  border-radius: 999px;
+  padding: 10px 14px;
+  background: rgba(240, 253, 244, .97);
+  color: #166534;
+  box-shadow: 0 12px 28px rgba(15, 23, 42, .16);
+  font-size: 12px;
+  font-weight: 800;
+  pointer-events: none;
+  animation: lookup-toast-in .2s ease-out;
+}
+.lookup-complete-toast.error {
+  border-color: #fde68a;
+  background: rgba(255, 251, 235, .97);
+  color: #92400e;
+}
+@keyframes lookup-toast-in {
+  from { opacity: 0; transform: translate(-50%, 8px); }
+  to { opacity: 1; transform: translate(-50%, 0); }
+}
+@media (max-width: 760px) {
+  .lookup-complete-toast { bottom: 78px; }
+}

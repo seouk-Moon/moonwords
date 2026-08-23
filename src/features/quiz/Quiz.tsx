@@ -28,6 +28,8 @@ export function Quiz({ doc, words, progress, generationJob, onClose, onGenerate,
   const [vocabFormat, setVocabFormat] = useState<VocabFormat>("choice");
   const [vocabUseAll, setVocabUseAll] = useState(false);
   const [vocabCount, setVocabCount] = useState(10);
+  const [flashcardUseAll, setFlashcardUseAll] = useState(false);
+  const [flashcardBatchCount, setFlashcardBatchCount] = useState(10);
   const [generationCount, setGenerationCount] = useState(5);
   const [writtenAnswer, setWrittenAnswer] = useState("");
   const [writtenRevealed, setWrittenRevealed] = useState(false);
@@ -124,7 +126,9 @@ export function Quiz({ doc, words, progress, generationJob, onClose, onGenerate,
       return vocabUseAll ? pool : pool.slice(0, Math.min(Math.max(vocabCount, 1), pool.length));
     }
     if (!quizWordsSnapshot.length) return [];
-    const targetWords = shuffle(quizWordsSnapshot).slice(0, vocabUseAll ? quizWordsSnapshot.length : Math.min(Math.max(vocabCount, 1), quizWordsSnapshot.length));
+    const targetCount = mode === "flashcard" ? flashcardBatchCount : vocabCount;
+    const useAllWords = mode === "flashcard" ? flashcardUseAll : vocabUseAll;
+    const targetWords = shuffle(quizWordsSnapshot).slice(0, useAllWords ? quizWordsSnapshot.length : Math.min(Math.max(targetCount, 1), quizWordsSnapshot.length));
     if (mode === "flashcard") return targetWords.map((word): FlashcardQuestion => ({
       kind: "flashcard",
       front: vocabDirection === "english-korean" ? word.word : word.meaning,
@@ -145,7 +149,7 @@ export function Quiz({ doc, words, progress, generationJob, onClose, onGenerate,
       return { kind: "choice", prompt, options, answer: options.indexOf(answerText), explanation: word.source_sentence, wordId: word.id, sourceSentence: word.source_sentence, testedPart: word.word };
     });
     return [];
-  }, [mode, quizWordsSnapshot, doc, orderingScope, selectedSentenceIds, shortenLongSentence, progress.bookmarked_sentence_ids, activeComprehensionIds, vocabDirection, vocabFormat, vocabUseAll, vocabCount, quizRun]);
+  }, [mode, quizWordsSnapshot, doc, orderingScope, selectedSentenceIds, shortenLongSentence, progress.bookmarked_sentence_ids, activeComprehensionIds, vocabDirection, vocabFormat, vocabUseAll, vocabCount, flashcardUseAll, flashcardBatchCount, quizRun]);
 
   useEffect(() => {
     if (!done || !started || answeredCount <= 0 || completedRunRef.current === quizRun) return;
@@ -374,7 +378,10 @@ export function Quiz({ doc, words, progress, generationJob, onClose, onGenerate,
     {!started && (mode === "meaning" || mode === "flashcard" || mode === "cloze") && <section className="quiz-settings compact">
       {(mode === "meaning" || mode === "flashcard") && <div className="quiz-setting-row"><strong>학습 방향</strong><div className="scope-buttons"><button className={vocabDirection === "english-korean" ? "active" : ""} onClick={() => { setVocabDirection("english-korean"); reset(mode); }}>영어 → 한글</button><button className={vocabDirection === "korean-english" ? "active" : ""} onClick={() => { setVocabDirection("korean-english"); reset(mode); }}>한글 → 영어</button></div></div>}
       {mode === "meaning" && <div className="quiz-setting-row"><strong>답변 방식</strong><div className="scope-buttons"><button className={vocabFormat === "choice" ? "active" : ""} onClick={() => { setVocabFormat("choice"); reset("meaning"); }}>선택형</button><button className={vocabFormat === "written" ? "active" : ""} onClick={() => { setVocabFormat("written"); reset("meaning"); }}>서술형</button></div></div>}
-      <div className="quiz-setting-row"><strong>{mode === "flashcard" ? "묶음당 카드" : mode === "cloze" ? "문제 수" : "단어 수"}</strong><label className="all-count-toggle"><input type="checkbox" checked={vocabUseAll} onChange={(event) => { setVocabUseAll(event.target.checked); reset(mode); }} />전체</label><label className="number-picker"><input type="number" min="1" max={Math.max(1, mode === "cloze" ? words.length + (doc.analysis.cloze_questions?.length ?? 0) : words.length)} disabled={vocabUseAll} value={Math.min(vocabCount, Math.max(1, mode === "cloze" ? words.length + (doc.analysis.cloze_questions?.length ?? 0) : words.length))} onChange={(event) => { setVocabCount(Math.max(1, Number(event.target.value))); reset(mode); }} />개</label><button className="reshuffle-button" onClick={() => reset(mode)}>↻ 다시 섞기</button></div>
+      {mode === "flashcard" ? <>
+        <div className="quiz-setting-row"><strong>묶음당 카드</strong><label className="all-count-toggle"><input type="checkbox" checked={flashcardUseAll} onChange={(event) => { setFlashcardUseAll(event.target.checked); reset("flashcard"); }} />전체를 한 묶음</label><label className="number-picker"><input type="number" min="1" max={Math.max(1, words.length)} disabled={flashcardUseAll} value={Math.min(flashcardBatchCount, Math.max(1, words.length))} onChange={(event) => { const nextCount = Math.max(1, Math.min(Math.max(1, words.length), Number(event.target.value) || 1)); setFlashcardBatchCount(nextCount); reset("flashcard"); }} />개</label><button className="reshuffle-button" onClick={() => reset("flashcard")}>↻ 다시 섞기</button></div>
+        <p className="scope-summary">저장 단어 {words.length}개 · {flashcardUseAll ? `전체 ${words.length}장을 한 묶음으로 출제합니다.` : `한 묶음에 ${Math.min(flashcardBatchCount, Math.max(1, words.length))}장씩 출제합니다.`}</p>
+      </> : <div className="quiz-setting-row"><strong>{mode === "cloze" ? "문제 수" : "단어 수"}</strong><label className="all-count-toggle"><input type="checkbox" checked={vocabUseAll} onChange={(event) => { setVocabUseAll(event.target.checked); reset(mode); }} />전체</label><label className="number-picker"><input type="number" min="1" max={Math.max(1, mode === "cloze" ? words.length + (doc.analysis.cloze_questions?.length ?? 0) : words.length)} disabled={vocabUseAll} value={Math.min(vocabCount, Math.max(1, mode === "cloze" ? words.length + (doc.analysis.cloze_questions?.length ?? 0) : words.length))} onChange={(event) => { setVocabCount(Math.max(1, Number(event.target.value))); reset(mode); }} />개</label><button className="reshuffle-button" onClick={() => reset(mode)}>↻ 다시 섞기</button></div>}
       {mode === "cloze" && <div className="quiz-setting-row generation-row"><strong>문제 추가</strong><label className="number-picker"><input type="number" min="1" max="20" value={generationCount} onChange={(event) => setGenerationCount(Math.max(1, Math.min(20, Number(event.target.value))))} />개</label><button className="generate-button" disabled={generationRunning} onClick={() => onGenerate("cloze", generationCount)}>{generationRunning ? "생성 진행 중…" : "＋ 빈칸 문제 추가 생성"}</button><small>본문의 문장과 핵심 어휘로 새 문제를 만듭니다.</small></div>}
     </section>}
 
