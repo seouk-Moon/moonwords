@@ -55,7 +55,7 @@ export default function App({ supabaseUrl, supabasePublishableKey }: AppProps = 
         configured={configured}
         session={workspace.session}
         onView={(view) => { setInfoPage(null); workspace.setView(view); }}
-        onSignOut={() => { void supabase?.auth.signOut(); }}
+        onSignOut={() => { void supabase?.auth.signOut({ scope: "local" }); }}
       />
 
       {quizGeneration.generationJob && (

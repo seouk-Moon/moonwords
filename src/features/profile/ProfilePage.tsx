@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import type { Session } from "@supabase/supabase-js";
-import { supabase } from "../../lib/supabase";
+import { clearLocalSupabaseAuthSession, supabase } from "../../lib/supabase";
 import type { LearningAnalyticsSnapshot } from "../progress/learning-analytics";
 import { LearningDashboard } from "../progress/LearningDashboard";
 
@@ -72,10 +72,36 @@ export function ProfilePage({ session, analytics, onBack }: Props) {
     setSigningOutEverywhere(true);
     setError("");
     setMessage("");
-    const { error: signOutError } = await supabase.auth.signOut({ scope: "global" });
-    if (signOutError) {
+
+    try {
+      const { error: signOutError } = await supabase.auth.signOut({ scope: "global" });
+      if (!signOutError) return;
+
+      const sessionMissing =
+        signOutError.name === "AuthSessionMissingError" ||
+        /auth session missing/i.test(signOutError.message);
+
+      if (sessionMissing) {
+        // The server has already invalidated this browser's session, while an old
+        // copy can still remain in localStorage. Clear that stale copy so the UI
+        // cannot remain stuck in a false "logged in" state.
+        clearLocalSupabaseAuthSession();
+        window.alert(
+          "현재 기기의 로그인 세션은 이미 만료되어 있어요. 이 기기의 오래된 로그인 정보는 정리했습니다. 다른 기기 세션까지 확실히 끊으려면 다시 로그인한 뒤 ‘모든 기기 로그아웃’을 한 번 더 눌러 주세요.",
+        );
+        window.location.reload();
+        return;
+      }
+
       setSigningOutEverywhere(false);
       setError(`모든 기기 로그아웃 중 문제가 생겼어요: ${signOutError.message}`);
+    } catch (signOutError) {
+      setSigningOutEverywhere(false);
+      setError(
+        `모든 기기 로그아웃 중 문제가 생겼어요: ${
+          signOutError instanceof Error ? signOutError.message : "알 수 없는 오류"
+        }`,
+      );
     }
   };
 

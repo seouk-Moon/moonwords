@@ -33,3 +33,17 @@ export const configureSupabase = (url?: string, publishableKey?: string) => {
   }
   return supabase;
 };
+export const clearLocalSupabaseAuthSession = () => {
+  if (typeof window === "undefined") return;
+  try {
+    const activeUrl = String((supabase as SupabaseClient & { supabaseUrl?: string } | null)?.supabaseUrl ?? buildSupabaseUrl);
+    const projectRef = new URL(activeUrl).hostname.split(".")[0];
+    if (!projectRef) return;
+    const storageKey = `sb-${projectRef}-auth-token`;
+    window.localStorage.removeItem(storageKey);
+    window.localStorage.removeItem(`${storageKey}-code-verifier`);
+  } catch {
+    // Best-effort cleanup for a stale browser session.
+  }
+};
+
