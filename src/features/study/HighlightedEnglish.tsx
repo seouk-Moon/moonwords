@@ -20,7 +20,7 @@ export function HighlightedEnglish({
   words: VocabularyItem[];
   onOpen: (word: VocabularyItem, element: HTMLButtonElement) => void;
   transientWord?: string;
-  transientStatus?: "loading" | "done" | "error";
+  transientStatus?: "loading" | "done";
 }) {
   const matches: Match[] = words.flatMap((word) => {
     const pattern = escapeRegExp(word.word.trim());
@@ -73,7 +73,7 @@ export function HighlightedEnglish({
         <mark
           className={`lookup-word-highlight ${transientStatus ?? ""}`}
           key={`lookup-${match.start}-${match.end}`}
-          title={transientStatus === "loading" ? "뜻을 찾는 중" : transientStatus === "done" ? "뜻 찾기 완료" : transientStatus === "error" ? "뜻 찾기 실패" : "선택한 단어"}
+          title={transientStatus === "loading" ? "뜻을 찾는 중" : transientStatus === "done" ? "뜻 찾기 완료" : "선택한 단어"}
         >
           {text.slice(match.start, match.end)}
         </mark>,

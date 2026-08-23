@@ -25,6 +25,7 @@ export function ProfilePage({ session, analytics, onBack }: Props) {
   const [avatarUrl, setAvatarUrl] = useState(String(metadata.avatar_url ?? ""));
   const [saving, setSaving] = useState(false);
   const [uploading, setUploading] = useState(false);
+  const [signingOutEverywhere, setSigningOutEverywhere] = useState(false);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
 
@@ -61,6 +62,21 @@ export function ProfilePage({ session, analytics, onBack }: Props) {
     setSaving(false);
     if (updateError) setError(updateError.message);
     else setMessage("프로필 정보를 저장했어요.");
+  };
+
+  const signOutEverywhere = async () => {
+    if (!supabase || signingOutEverywhere) return;
+    const confirmed = window.confirm("이 기기를 포함해 MoonWords에 로그인된 모든 기기에서 로그아웃할까요?");
+    if (!confirmed) return;
+
+    setSigningOutEverywhere(true);
+    setError("");
+    setMessage("");
+    const { error: signOutError } = await supabase.auth.signOut({ scope: "global" });
+    if (signOutError) {
+      setSigningOutEverywhere(false);
+      setError(`모든 기기 로그아웃 중 문제가 생겼어요: ${signOutError.message}`);
+    }
   };
 
   const uploadAvatar = async (file: File) => {
@@ -168,6 +184,22 @@ export function ProfilePage({ session, analytics, onBack }: Props) {
           <button className="primary-button profile-save-button" disabled={saving} onClick={() => void saveProfile()}>
             {saving ? "저장 중…" : "프로필 저장"}
           </button>
+
+          <div className="profile-security-block">
+            <div>
+              <span className="section-kicker">SECURITY</span>
+              <b>모든 기기에서 로그아웃</b>
+              <p>공유했던 로그인 링크나 다른 기기에 남아 있는 세션까지 한 번에 종료합니다. 이 기기에서도 다시 로그인해야 해요.</p>
+            </div>
+            <button
+              className="profile-global-signout-button"
+              type="button"
+              disabled={signingOutEverywhere}
+              onClick={() => void signOutEverywhere()}
+            >
+              {signingOutEverywhere ? "로그아웃 중…" : "모든 기기 로그아웃"}
+            </button>
+          </div>
         </article>
       </section>
 

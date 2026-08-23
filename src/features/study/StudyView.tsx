@@ -8,7 +8,7 @@ import { HighlightedEnglish } from "./HighlightedEnglish";
 export function StudyView({ doc, words, progress, onSaveWord, onDeleteWord, onProgress }: { doc: StudyDocument; words: VocabularyItem[]; progress: StudyProgress; onSaveWord: (word: Omit<VocabularyItem, "id" | "user_id" | "created_at" | "updated_at">) => Promise<void>; onDeleteWord: (id: string) => Promise<void>; onProgress: (next: StudyProgress) => void }) {
   const [selected, setSelected] = useState<SelectedWord | null>(null);
   const [loadingMeaning, setLoadingMeaning] = useState(false);
-  const [lookupHighlight, setLookupHighlight] = useState<{ word: string; sentenceId: number; status: "loading" | "done" | "error" } | null>(null);
+  const [lookupHighlight, setLookupHighlight] = useState<{ word: string; sentenceId: number; status: "loading" | "done" } | null>(null);
   const [lookupNotice, setLookupNotice] = useState("");
   const [listeningState, setListeningState] = useState<"idle" | "playing" | "paused">("idle");
   const [speakingSentenceId, setSpeakingSentenceId] = useState<number | null>(null);
@@ -48,24 +48,31 @@ export function StudyView({ doc, words, progress, onSaveWord, onDeleteWord, onPr
       setLookupNotice("");
       if (lookupNoticeTimer.current !== null) window.clearTimeout(lookupNoticeTimer.current);
       setLoadingMeaning(true);
-      let lookupSucceeded = false;
+      let resolvedMeaning = "";
       try {
         const response = await supabase.functions.invoke("process-document", { body: { action: "define", word, sentence: sentence.english, translation: sentence.korean } });
         if (!response.error && response.data?.meaning) {
-          meaningCache.current.set(cacheKey, response.data.meaning);
-          lookupSucceeded = true;
-          setSelected((current) => current && current.sentenceId === sentenceId && current.word === word ? { ...current, meaning: response.data.meaning } : current);
+          resolvedMeaning = String(response.data.meaning);
+          meaningCache.current.set(cacheKey, resolvedMeaning);
+          setSelected((current) => current && current.sentenceId === sentenceId && current.word === word ? { ...current, meaning: resolvedMeaning } : current);
         }
       } finally {
         if (activeLookup.current === cacheKey) {
           setLoadingMeaning(false);
-          const finalStatus = lookupSucceeded ? "done" : "error";
-          setLookupHighlight((current) => current && current.sentenceId === sentenceId && current.word === word ? { ...current, status: finalStatus } : current);
-          setLookupNotice(lookupSucceeded ? `✓ ${word} 뜻을 찾았어요` : `${word} 뜻을 찾지 못했어요`);
-          lookupNoticeTimer.current = window.setTimeout(() => setLookupNotice(""), 2200);
-          window.setTimeout(() => {
-            setLookupHighlight((current) => current && current.sentenceId === sentenceId && current.word === word && current.status !== "loading" ? null : current);
-          }, 2200);
+          if (resolvedMeaning) {
+            // Blue means the AI lookup is still running. Switch to green only after
+            // the meaning has actually arrived, so mobile users get a clear finish signal.
+            setLookupHighlight((current) => current && current.sentenceId === sentenceId && current.word === word ? { ...current, status: "done" } : current);
+            setLookupNotice(`✓ ${word} 뜻 찾기 완료`);
+            lookupNoticeTimer.current = window.setTimeout(() => setLookupNotice(""), 1800);
+            window.setTimeout(() => {
+              setLookupHighlight((current) => current && current.sentenceId === sentenceId && current.word === word && current.status === "done" ? null : current);
+            }, 1800);
+          } else {
+            // Do not show a misleading "search failed" color for AI lookup. If a
+            // network/function call is interrupted, simply remove the loading state.
+            setLookupHighlight((current) => current && current.sentenceId === sentenceId && current.word === word ? null : current);
+          }
         }
       }
     }
@@ -278,7 +285,7 @@ export function StudyView({ doc, words, progress, onSaveWord, onDeleteWord, onPr
         </aside>
       </>}
 
-      {lookupNotice && <div className={`lookup-complete-toast ${lookupHighlight?.status === "error" ? "error" : ""}`} role="status" aria-live="polite">{lookupNotice}</div>}
+      {lookupNotice && <div className="lookup-complete-toast" role="status" aria-live="polite">{lookupNotice}</div>}
 
       {selected && <div ref={popoverRef} className="selection-popover" style={{ left: selected.x, top: selected.y }}>
         <small>{selected.savedId ? "SAVED WORD" : "MEANING"}</small>
