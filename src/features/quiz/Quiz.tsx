@@ -234,32 +234,41 @@ export function Quiz({ doc, words, progress, generationJob, onClose, onGenerate,
     onQuestionAnswered(mode, correct, { wordId: question.wordId });
   };
   const gradeFlashcard = (correct: boolean) => {
-    const question = flashcardQueue[index];
+    const question = flashcardQueue[0];
     if (!question || !flashcardFlipped) return;
     onResult(question.wordId, correct);
     onQuestionAnswered(mode, correct, { wordId: question.wordId });
     setAnsweredCount((value) => value + 1);
+    flashcardPointerStart.current = null;
     flashcardDragCurrent.current = 0;
     setFlashcardDragX(0);
+
     if (correct) {
       setScore((value) => value + 1);
-      if (index + 1 >= flashcardQueue.length) setDone(true);
-      else { setIndex((value) => value + 1); clearAnswer(); }
-    } else {
-      rememberMistake({
-        id: `flashcard:${quizRun}:${question.wordId}`,
-        prompt: question.front,
-        selected: "다시 보기",
-        answer: question.back,
-        explanation: question.example,
-        sourceSentence: question.sourceSentence,
-        testedPart: question.testedPart,
-      });
-      setFlashcardRetryByWord((items) => ({ ...items, [question.wordId]: (items[question.wordId] ?? 0) + 1 }));
-      setFlashcardQueue((items) => [...items, question]);
-      setIndex((value) => value + 1);
+      if (flashcardQueue.length <= 1) {
+        setFlashcardQueue([]);
+        setDone(true);
+      } else {
+        setFlashcardQueue((items) => items.slice(1));
+      }
+      setIndex(0);
       clearAnswer();
+      return;
     }
+
+    rememberMistake({
+      id: `flashcard:${quizRun}:${question.wordId}`,
+      prompt: question.front,
+      selected: "다시 보기",
+      answer: question.back,
+      explanation: question.example,
+      sourceSentence: question.sourceSentence,
+      testedPart: question.testedPart,
+    });
+    setFlashcardRetryByWord((items) => ({ ...items, [question.wordId]: (items[question.wordId] ?? 0) + 1 }));
+    setFlashcardQueue((items) => items.length > 1 ? [...items.slice(1), items[0]] : items);
+    setIndex(0);
+    clearAnswer();
   };
   const submitOrdering = () => {
     const question = questions[index];
@@ -326,7 +335,7 @@ export function Quiz({ doc, words, progress, generationJob, onClose, onGenerate,
     prepareComprehension("all", true, doc.analysis.questions.length);
   };
 
-  const question = mode === "flashcard" && started ? flashcardQueue[index] : questions[index];
+  const question = mode === "flashcard" && started ? flashcardQueue[0] : questions[index];
   const selectedOrderingTokens = question?.kind === "ordering" ? orderedTokenIds.map((id) => question.shuffledTokens.find((token) => token.id === id)).filter((token): token is { id: string; text: string } => Boolean(token)) : [];
   const availableOrderingTokens = question?.kind === "ordering" ? question.shuffledTokens.filter((token) => !orderedTokenIds.includes(token.id)) : [];
   const currentFlashcardRetryCount = question?.kind === "flashcard" ? (flashcardRetryByWord[question.wordId] ?? 0) : 0;
@@ -383,6 +392,6 @@ export function Quiz({ doc, words, progress, generationJob, onClose, onGenerate,
       <div className={`ordering-answer ${orderingSubmitted ? orderingCorrect ? "correct" : "wrong" : ""}`}>{selectedOrderingTokens.length ? selectedOrderingTokens.map((token) => <button key={token.id} disabled={orderingSubmitted} onClick={() => setOrderedTokenIds((ids) => ids.filter((id) => id !== token.id))}>{token.text}</button>) : <span>아래 단어를 순서대로 선택하세요.</span>}</div>
       <div className="ordering-bank">{availableOrderingTokens.map((token) => <button key={token.id} disabled={orderingSubmitted} onClick={() => setOrderedTokenIds((ids) => [...ids, token.id])}>{token.text}</button>)}</div>
       {!orderingSubmitted ? <div className="ordering-actions"><button onClick={() => setOrderedTokenIds([])} disabled={!orderedTokenIds.length}>초기화</button><button className="primary-button" onClick={submitOrdering} disabled={orderedTokenIds.length !== question.answerTokens.length}>채점하기</button></div> : <div className="answer-note"><b>{orderingCorrect ? "정답입니다" : "정답을 확인하세요"}</b><p>{question.answerTokens.join(" ")}</p><button onClick={next}>{index + 1 === questions.length ? "결과 보기" : "다음 문제 →"}</button></div>}
-    </section> : question?.kind === "written" ? <section className="quiz-card written-card"><header><span>{index + 1} / {questions.length}</span><div><i style={{ width: `${((index + 1) / questions.length) * 100}%` }} /></div><b>{score} correct</b></header><h2>{question.prompt}</h2><div className="written-response"><input autoFocus value={writtenAnswer} disabled={writtenRevealed} onChange={(event) => setWrittenAnswer(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter" && writtenAnswer.trim()) setWrittenRevealed(true); }} placeholder="정답을 직접 입력하세요" /><button className="primary-button" disabled={!writtenAnswer.trim() || writtenRevealed} onClick={() => setWrittenRevealed(true)}>정답 확인</button></div>{writtenRevealed && <div className="answer-note written-note"><b>정답: {question.answerText}</b><p>내 답: {writtenAnswer}</p><p className="example-note">{question.explanation}</p>{writtenGraded === null ? <div className="self-grade"><span>내 답을 스스로 채점해 주세요.</span><button onClick={() => gradeWritten(false)}>틀렸어요</button><button className="correct-button" onClick={() => gradeWritten(true)}>맞았어요</button></div> : <><strong>{writtenGraded ? "정답으로 기록했습니다." : "오답으로 기록했습니다."}</strong><button onClick={next}>{index + 1 === questions.length ? "결과 보기" : "다음 문제 →"}</button></>}</div>}</section> : question?.kind === "flashcard" ? <section className="quiz-card flashcard-wrap"><header><span>{Math.min(index + 1, flashcardQueue.length)} / {flashcardQueue.length}</span><div><i style={{ width: `${flashcardQueue.length ? (Math.min(index + 1, flashcardQueue.length) / flashcardQueue.length) * 100 : 0}%` }} /></div><b>{score} memorized</b></header><div className="flashcard-stage"><span className="swipe-label retry" style={{ opacity: Math.max(0, -flashcardDragX / 90) }}>다시 보기</span><span className="swipe-label learned" style={{ opacity: Math.max(0, flashcardDragX / 90) }}>외웠어요</span><div role="button" tabIndex={0} className={`flashcard ${flashcardFlipped ? "flipped" : ""}`} style={{ transform: `translateX(${flashcardDragX}px) rotate(${flashcardDragX / 18}deg)` }} onClick={() => { if (!flashcardFlipped) setFlashcardFlipped(true); }} onKeyDown={(event) => { if ((event.key === "Enter" || event.key === " ") && !flashcardFlipped) setFlashcardFlipped(true); }} onPointerDown={beginFlashcardSwipe} onPointerMove={moveFlashcardSwipe} onPointerUp={endFlashcardSwipe} onPointerCancel={endFlashcardSwipe}><span>{flashcardFlipped ? "BACK" : "FRONT"}</span><strong>{flashcardFlipped ? question.back : question.front}</strong>{flashcardFlipped ? <small>{question.example}<em>{question.translation}</em></small> : <small>카드를 눌러 답을 확인하세요.</small>}</div></div><p className="flashcard-swipe-help">답을 확인한 뒤 왼쪽은 ‘다시 보기’, 오른쪽은 ‘외웠어요’로 밀어 주세요.{currentFlashcardRetryCount > 0 && <b> · 이 카드 재도전 {currentFlashcardRetryCount}회</b>}</p>{flashcardFlipped && <div className="flashcard-actions"><button onClick={() => gradeFlashcard(false)}>← 다시 보기</button><button className="primary-button" onClick={() => gradeFlashcard(true)}>외웠어요 →</button></div>}</section> : question?.kind === "choice" ? <section className="quiz-card"><header><span>{index + 1} / {questions.length}</span><div><i style={{ width: `${((index + 1) / questions.length) * 100}%` }} /></div><b>{score} correct</b></header><h2>{question.prompt}</h2><div className="options">{question.options.map((option, optionIndex) => <button key={`${option}-${optionIndex}`} className={picked === null ? "" : optionIndex === question.answer ? "correct" : optionIndex === picked ? "wrong" : "muted"} onClick={() => answer(optionIndex)}><span>{String.fromCharCode(65 + optionIndex)}</span>{option}</button>)}</div>{picked !== null && <div className="answer-note"><b>{picked === question.answer ? "정답입니다" : "정답을 확인하세요"}</b><p>{question.explanation}</p><button onClick={next}>{index + 1 === questions.length ? "결과 보기" : "다음 문제 →"}</button></div>}</section> : null)}
+    </section> : question?.kind === "written" ? <section className="quiz-card written-card"><header><span>{index + 1} / {questions.length}</span><div><i style={{ width: `${((index + 1) / questions.length) * 100}%` }} /></div><b>{score} correct</b></header><h2>{question.prompt}</h2><div className="written-response"><input autoFocus value={writtenAnswer} disabled={writtenRevealed} onChange={(event) => setWrittenAnswer(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter" && writtenAnswer.trim()) setWrittenRevealed(true); }} placeholder="정답을 직접 입력하세요" /><button className="primary-button" disabled={!writtenAnswer.trim() || writtenRevealed} onClick={() => setWrittenRevealed(true)}>정답 확인</button></div>{writtenRevealed && <div className="answer-note written-note"><b>정답: {question.answerText}</b><p>내 답: {writtenAnswer}</p><p className="example-note">{question.explanation}</p>{writtenGraded === null ? <div className="self-grade"><span>내 답을 스스로 채점해 주세요.</span><button onClick={() => gradeWritten(false)}>틀렸어요</button><button className="correct-button" onClick={() => gradeWritten(true)}>맞았어요</button></div> : <><strong>{writtenGraded ? "정답으로 기록했습니다." : "오답으로 기록했습니다."}</strong><button onClick={next}>{index + 1 === questions.length ? "결과 보기" : "다음 문제 →"}</button></>}</div>}</section> : question?.kind === "flashcard" ? <section className="quiz-card flashcard-wrap"><header><span>남은 {flashcardQueue.length} / {questions.length}</span><div><i style={{ width: `${questions.length ? (score / questions.length) * 100 : 0}%` }} /></div><b>{score} memorized</b></header><div className="flashcard-stage"><span className="swipe-label retry" style={{ opacity: Math.max(0, -flashcardDragX / 90) }}>다시 보기</span><span className="swipe-label learned" style={{ opacity: Math.max(0, flashcardDragX / 90) }}>외웠어요</span><div role="button" tabIndex={0} className={`flashcard ${flashcardFlipped ? "flipped" : ""}`} style={{ transform: `translateX(${flashcardDragX}px) rotate(${flashcardDragX / 18}deg)` }} onClick={() => { if (!flashcardFlipped) setFlashcardFlipped(true); }} onKeyDown={(event) => { if ((event.key === "Enter" || event.key === " ") && !flashcardFlipped) setFlashcardFlipped(true); }} onPointerDown={beginFlashcardSwipe} onPointerMove={moveFlashcardSwipe} onPointerUp={endFlashcardSwipe} onPointerCancel={endFlashcardSwipe}><span>{flashcardFlipped ? "BACK" : "FRONT"}</span><strong>{flashcardFlipped ? question.back : question.front}</strong>{flashcardFlipped ? <small>{question.example}<em>{question.translation}</em></small> : <small>카드를 눌러 답을 확인하세요.</small>}</div></div><p className="flashcard-swipe-help">답을 확인한 뒤 왼쪽은 ‘다시 보기’, 오른쪽은 ‘외웠어요’로 밀어 주세요.{currentFlashcardRetryCount > 0 && <b> · 이 카드 재도전 {currentFlashcardRetryCount}회</b>}</p>{flashcardFlipped && <div className="flashcard-actions"><button onClick={() => gradeFlashcard(false)}>← 다시 보기</button><button className="primary-button" onClick={() => gradeFlashcard(true)}>외웠어요 →</button></div>}</section> : question?.kind === "choice" ? <section className="quiz-card"><header><span>{index + 1} / {questions.length}</span><div><i style={{ width: `${((index + 1) / questions.length) * 100}%` }} /></div><b>{score} correct</b></header><h2>{question.prompt}</h2><div className="options">{question.options.map((option, optionIndex) => <button key={`${option}-${optionIndex}`} className={picked === null ? "" : optionIndex === question.answer ? "correct" : optionIndex === picked ? "wrong" : "muted"} onClick={() => answer(optionIndex)}><span>{String.fromCharCode(65 + optionIndex)}</span>{option}</button>)}</div>{picked !== null && <div className="answer-note"><b>{picked === question.answer ? "정답입니다" : "정답을 확인하세요"}</b><p>{question.explanation}</p><button onClick={next}>{index + 1 === questions.length ? "결과 보기" : "다음 문제 →"}</button></div>}</section> : null)}
   </main>;
 }

@@ -481,23 +481,22 @@ button { font-weight: 650; }
 .selection-popover .delete-word { color: #b42318; border-color: #f0b8b8; }
 .selection-popover .save-word { background: var(--blue); color: #fff; }
 
-/* Reading columns scroll independently on desktop. */
+/* Keep the reading article in the normal page scroll so the whole screen moves with the text. */
 @media (min-width: 901px) {
-  .study-layout { align-items: start; }
-  .article-card,
-  .insight-panel {
-    max-height: calc(100vh - 92px);
-    overflow-y: auto;
-    overscroll-behavior: contain;
-    scrollbar-gutter: stable;
-  }
+  .study-layout { align-items: start; overflow: visible; }
   .article-card {
-    scrollbar-width: thin;
-    scrollbar-color: #cbd5e1 transparent;
+    max-height: none;
+    overflow: visible;
+    overscroll-behavior: auto;
+    scrollbar-gutter: auto;
   }
   .insight-panel {
     position: sticky;
-    top: 78px;
+    top: 92px;
+    max-height: calc(100vh - 116px);
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    scrollbar-gutter: stable;
     scrollbar-width: thin;
     scrollbar-color: #cbd5e1 transparent;
   }
