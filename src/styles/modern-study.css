@@ -1520,3 +1520,100 @@ button { font-weight: 650; }
   .profile-security-block { align-items: stretch; flex-direction: column; }
   .profile-global-signout-button { width: 100%; }
 }
+
+/* Revision 2026-08-24 — persistent listening controls and visible playback feedback. */
+.audio-toolbar.is-playing,
+.audio-toolbar.is-paused {
+  border-color: #b9c9ff;
+  box-shadow: 0 8px 22px rgba(49, 94, 251, .08);
+}
+.audio-toolbar.is-paused .audio-play { background: #17243a; border-color: #17243a; }
+
+.sentence-actions button.sentence-listen-active {
+  padding: 6px 9px;
+  border-radius: 999px;
+  background: var(--blue);
+  color: #fff;
+  box-shadow: 0 6px 16px rgba(49, 94, 251, .2);
+}
+
+.audio-bottom-dock {
+  position: fixed;
+  z-index: 42;
+  left: 50%;
+  bottom: calc(16px + env(safe-area-inset-bottom));
+  transform: translateX(-50%);
+  width: min(620px, calc(100% - 28px));
+  padding: 10px 12px;
+  border: 1px solid #d8ddea;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, .96);
+  box-shadow: 0 18px 50px rgba(18, 33, 44, .18);
+  backdrop-filter: blur(16px);
+}
+.audio-bottom-dock > div {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.audio-bottom-dock button {
+  min-height: 36px;
+  border: 1px solid #cfd5e7;
+  border-radius: 9px;
+  padding: 9px 12px;
+  background: #fff;
+  color: var(--ink);
+  font-size: 10px;
+  font-weight: 820;
+}
+.audio-bottom-dock .audio-play {
+  background: var(--blue);
+  border-color: var(--blue);
+  color: #fff;
+}
+.audio-bottom-dock span {
+  color: #667085;
+  font-size: 9px;
+  font-weight: 650;
+}
+.audio-bottom-dock.is-playing {
+  border-color: #8eabff;
+  box-shadow: 0 18px 50px rgba(49, 94, 251, .2);
+}
+.audio-bottom-dock.is-paused .audio-play { background: #17243a; border-color: #17243a; }
+
+.auto-login-option {
+  display: grid !important;
+  grid-template-columns: 18px minmax(0, 1fr);
+  align-items: start;
+  gap: 10px !important;
+  padding: 11px 12px;
+  border: 1px solid #e1e7f0;
+  border-radius: 10px;
+  background: #f8fafc;
+  cursor: pointer;
+}
+.auto-login-option > input {
+  width: 16px;
+  height: 16px;
+  margin: 1px 0 0;
+  padding: 0;
+  accent-color: var(--blue);
+  box-shadow: none !important;
+}
+.auto-login-option > span { display: grid; gap: 3px; }
+.auto-login-option b { color: #344054; font-size: 11px; }
+.auto-login-option small { color: #7a8493; font-size: 9px; font-weight: 550; line-height: 1.45; }
+
+@media (max-width: 620px) {
+  .audio-bottom-dock {
+    bottom: calc(10px + env(safe-area-inset-bottom));
+    width: calc(100% - 20px);
+    padding: 9px 10px;
+    border-radius: 13px;
+  }
+  .audio-bottom-dock > div { justify-content: flex-start; }
+  .audio-bottom-dock span { width: 100%; padding-left: 2px; }
+}

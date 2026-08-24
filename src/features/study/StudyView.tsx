@@ -4,6 +4,7 @@ import { cleanSelection, sameLexeme } from "../../lib/app-utils";
 import type { SelectedWord } from "../../app-types";
 import type { StudyDocument, StudyProgress, VocabularyItem } from "../../types";
 import { HighlightedEnglish } from "./HighlightedEnglish";
+import { ListeningControls } from "./ListeningControls";
 
 export function StudyView({ doc, words, progress, onSaveWord, onDeleteWord, onProgress }: { doc: StudyDocument; words: VocabularyItem[]; progress: StudyProgress; onSaveWord: (word: Omit<VocabularyItem, "id" | "user_id" | "created_at" | "updated_at">) => Promise<void>; onDeleteWord: (id: string) => Promise<void>; onProgress: (next: StudyProgress) => void }) {
   const [selected, setSelected] = useState<SelectedWord | null>(null);
@@ -12,8 +13,11 @@ export function StudyView({ doc, words, progress, onSaveWord, onDeleteWord, onPr
   const [lookupNotice, setLookupNotice] = useState("");
   const [listeningState, setListeningState] = useState<"idle" | "playing" | "paused">("idle");
   const [speakingSentenceId, setSpeakingSentenceId] = useState<number | null>(null);
+  const [singleSpeakingSentenceId, setSingleSpeakingSentenceId] = useState<number | null>(null);
+  const [showFloatingListeningControls, setShowFloatingListeningControls] = useState(false);
   const [showOriginal, setShowOriginal] = useState(false);
   const articleRef = useRef<HTMLDivElement>(null);
+  const topListeningRef = useRef<HTMLDivElement>(null);
   const popoverRef = useRef<HTMLDivElement>(null);
   const meaningCache = useRef(new Map<string, string>());
   const activeLookup = useRef("");
@@ -90,11 +94,12 @@ export function StudyView({ doc, words, progress, onSaveWord, onDeleteWord, onPr
     window.getSelection()?.removeAllRanges();
   }, []);
 
-  const stopFullListening = useCallback(() => {
+  const stopListening = useCallback(() => {
     listeningRun.current += 1;
     window.speechSynthesis.cancel();
     setListeningState("idle");
     setSpeakingSentenceId(null);
+    setSingleSpeakingSentenceId(null);
   }, []);
 
   playNext.current = (index, run) => {
@@ -115,7 +120,7 @@ export function StudyView({ doc, words, progress, onSaveWord, onDeleteWord, onPr
     };
     utterance.onend = () => playNext.current(index + 1, run);
     utterance.onerror = () => {
-      if (run === listeningRun.current) stopFullListening();
+      if (run === listeningRun.current) stopListening();
     };
     window.speechSynthesis.speak(utterance);
   };
@@ -124,6 +129,7 @@ export function StudyView({ doc, words, progress, onSaveWord, onDeleteWord, onPr
     listeningRun.current += 1;
     window.speechSynthesis.cancel();
     const run = listeningRun.current;
+    setSingleSpeakingSentenceId(null);
     setListeningState("playing");
     setSpeakingSentenceId(null);
     playNext.current(0, run);
@@ -141,10 +147,23 @@ export function StudyView({ doc, words, progress, onSaveWord, onDeleteWord, onPr
 
   useEffect(() => {
     setShowOriginal(false);
+    setListeningState("idle");
+    setSpeakingSentenceId(null);
+    setSingleSpeakingSentenceId(null);
     return () => {
       listeningRun.current += 1;
       window.speechSynthesis.cancel();
     };
+  }, [doc.id]);
+
+  useEffect(() => {
+    const target = topListeningRef.current;
+    if (!target || typeof IntersectionObserver === "undefined") return;
+    const observer = new IntersectionObserver(([entry]) => {
+      setShowFloatingListeningControls(!entry.isIntersecting && entry.boundingClientRect.bottom < 0);
+    }, { threshold: 0.15 });
+    observer.observe(target);
+    return () => observer.disconnect();
   }, [doc.id]);
 
   useEffect(() => {
@@ -183,7 +202,27 @@ export function StudyView({ doc, words, progress, onSaveWord, onDeleteWord, onPr
     const current = progress[key];
     onProgress({ ...progress, [key]: current.includes(id) ? current.filter((value) => value !== id) : [...current, id], last_studied_at: new Date().toISOString() });
   };
-  const speak = (text: string) => { stopFullListening(); const utterance = new SpeechSynthesisUtterance(text); utterance.lang = "en-US"; utterance.rate = 0.86; window.speechSynthesis.speak(utterance); };
+  const speakSentence = (sentenceId: number, text: string) => {
+    if (singleSpeakingSentenceId === sentenceId) {
+      stopListening();
+      return;
+    }
+    listeningRun.current += 1;
+    window.speechSynthesis.cancel();
+    const run = listeningRun.current;
+    setListeningState("idle");
+    setSpeakingSentenceId(null);
+    setSingleSpeakingSentenceId(sentenceId);
+    const utterance = new SpeechSynthesisUtterance(text);
+    utterance.lang = "en-US";
+    utterance.rate = 0.86;
+    const finish = () => {
+      if (run === listeningRun.current) setSingleSpeakingSentenceId(null);
+    };
+    utterance.onend = finish;
+    utterance.onerror = finish;
+    window.speechSynthesis.speak(utterance);
+  };
   const openOriginalFile = async () => {
     if (!supabase || !doc.source_file_path) {
       setShowOriginal(true);
@@ -259,20 +298,36 @@ export function StudyView({ doc, words, progress, onSaveWord, onDeleteWord, onPr
           onScroll={() => setSelected(null)}
         >
           <div className="article-tip"><b>모르는 단어를 드래그해 보세요.</b><span>저장된 단어는 하이라이트를 눌러 뜻 확인·삭제가 가능해요.</span></div>
-          <div className="audio-toolbar"><div><button className="audio-play" onClick={listeningState === "idle" ? startFullListening : toggleListeningPause}>{listeningState === "idle" ? "▶ 전체 듣기" : listeningState === "paused" ? "▶ 계속 듣기" : "Ⅱ 일시정지"}</button>{listeningState !== "idle" && <button onClick={stopFullListening}>■ 정지</button>}<span>{speakingSentenceId ? `${sentences.findIndex((sentence) => sentence.id === speakingSentenceId) + 1}/${sentences.length} 문장` : "영어 본문 연속 재생"}</span></div></div>
+          <div ref={topListeningRef}>
+            <ListeningControls
+              state={listeningState}
+              currentSentenceIndex={speakingSentenceId ? sentences.findIndex((sentence) => sentence.id === speakingSentenceId) + 1 : 0}
+              sentenceCount={sentences.length}
+              onPrimary={listeningState === "idle" ? startFullListening : toggleListeningPause}
+              onStop={stopListening}
+            />
+          </div>
           {doc.analysis.sections.map((section) => <section className="paragraph-block" key={section.id}>
             <header><span>{String(section.id).padStart(2, "0")}</span><div><b>{section.label}</b><small>{section.role}</small></div></header>
             {sentences.filter((sentence) => sentence.paragraph === section.id).map((sentence) => {
               const sentenceWords = words.filter((word) => word.sentence_id === sentence.id);
-              return <div className={`sentence-pair ${understood.includes(sentence.id) ? "understood" : ""} ${difficultSentences.includes(sentence.id) ? "difficult" : ""} ${speakingSentenceId === sentence.id ? "listening" : ""}`} data-sentence={sentence.id} key={sentence.id}>
+              return <div className={`sentence-pair ${understood.includes(sentence.id) ? "understood" : ""} ${difficultSentences.includes(sentence.id) ? "difficult" : ""} ${speakingSentenceId === sentence.id || singleSpeakingSentenceId === sentence.id ? "listening" : ""}`} data-sentence={sentence.id} key={sentence.id}>
                 <div className="sentence-number">{sentence.marked && <span className="source-mark" title="원본 밑줄 표시">★</span>}{sentence.id}</div>
-                <div className="sentence-copy"><p className="english"><HighlightedEnglish text={sentence.english} words={sentenceWords} onOpen={openSavedWord} transientWord={lookupHighlight?.sentenceId === sentence.id ? lookupHighlight.word : undefined} transientStatus={lookupHighlight?.sentenceId === sentence.id ? lookupHighlight.status : undefined} /></p><p className="korean">{sentence.korean}</p><div className="sentence-actions"><button onClick={() => speak(sentence.english)}>◉ 듣기</button><button onClick={() => toggle("understood_sentence_ids", sentence.id)}>{understood.includes(sentence.id) ? "✓ 이해함" : "○ 이해 체크"}</button><button onClick={() => toggle("bookmarked_sentence_ids", sentence.id)}>{difficultSentences.includes(sentence.id) ? "⚑ 어려운 문장 해제" : "⚐ 어려운 문장 체크"}</button></div></div>
+                <div className="sentence-copy"><p className="english"><HighlightedEnglish text={sentence.english} words={sentenceWords} onOpen={openSavedWord} transientWord={lookupHighlight?.sentenceId === sentence.id ? lookupHighlight.word : undefined} transientStatus={lookupHighlight?.sentenceId === sentence.id ? lookupHighlight.status : undefined} /></p><p className="korean">{sentence.korean}</p><div className="sentence-actions"><button className={singleSpeakingSentenceId === sentence.id ? "sentence-listen-active" : ""} aria-pressed={singleSpeakingSentenceId === sentence.id} onClick={() => speakSentence(sentence.id, sentence.english)}>{singleSpeakingSentenceId === sentence.id ? "■ 듣기 중" : "◉ 듣기"}</button><button onClick={() => toggle("understood_sentence_ids", sentence.id)}>{understood.includes(sentence.id) ? "✓ 이해함" : "○ 이해 체크"}</button><button onClick={() => toggle("bookmarked_sentence_ids", sentence.id)}>{difficultSentences.includes(sentence.id) ? "⚑ 어려운 문장 해제" : "⚐ 어려운 문장 체크"}</button></div></div>
               </div>;
             })}
           </section>)}
         </article>
         <aside className="insight-panel" onScroll={() => setSelected(null)}><span className="section-kicker">READING MAP</span><h3>본문 구조</h3><p>{doc.analysis.structure}</p><div className="structure-list">{doc.analysis.sections.map((section) => <div key={section.id}><b>{section.id}</b><span>{section.label}<small>{section.role}</small></span></div>)}</div><div className="progress-ring"><strong>{Math.round((understood.length / Math.max(sentences.length, 1)) * 100)}%</strong><span>이해 완료</span></div></aside>
       </div>
+      {showFloatingListeningControls && singleSpeakingSentenceId === null && <ListeningControls
+        state={listeningState}
+        currentSentenceIndex={speakingSentenceId ? sentences.findIndex((sentence) => sentence.id === speakingSentenceId) + 1 : 0}
+        sentenceCount={sentences.length}
+        onPrimary={listeningState === "idle" ? startFullListening : toggleListeningPause}
+        onStop={stopListening}
+        floating
+      />}
       {showOriginal && <>
         <button className="original-source-backdrop" aria-label="원문 닫기" onClick={() => setShowOriginal(false)} />
         <aside className="original-source-drawer" role="dialog" aria-modal="true" aria-label="업로드한 원문">

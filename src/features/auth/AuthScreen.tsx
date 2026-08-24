@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { supabase } from "../../lib/supabase";
 import { Logo } from "../../components/brand/Logo";
+import { isAutoLoginEnabled, setAutoLoginEnabled } from "../../lib/auth-storage";
 
 type GenderValue = "" | "female" | "male" | "other" | "prefer_not_to_say";
 
@@ -13,6 +14,7 @@ export function AuthScreen() {
   const [gender, setGender] = useState<GenderValue>("");
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
+  const [autoLogin, setAutoLogin] = useState(isAutoLoginEnabled);
 
   const submit = async (event: React.FormEvent) => {
     event.preventDefault();
@@ -23,6 +25,7 @@ export function AuthScreen() {
     }
     setBusy(true);
     setMessage("");
+    if (mode === "login") setAutoLoginEnabled(autoLogin);
     const result = mode === "login"
       ? await supabase.auth.signInWithPassword({ email, password })
       : await supabase.auth.signUp({
@@ -68,6 +71,18 @@ export function AuthScreen() {
         </div>}
         <label>이메일<input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required placeholder="you@example.com" autoComplete="email" /></label>
         <label>비밀번호<input type="password" value={password} onChange={(e) => setPassword(e.target.value)} required minLength={6} placeholder="6자 이상" autoComplete={mode === "login" ? "current-password" : "new-password"} /></label>
+        {mode === "login" && <label className="auto-login-option">
+          <input
+            type="checkbox"
+            checked={autoLogin}
+            onChange={(e) => {
+              const enabled = e.target.checked;
+              setAutoLogin(enabled);
+              setAutoLoginEnabled(enabled);
+            }}
+          />
+          <span><b>자동 로그인</b><small>{autoLogin ? "이 브라우저에서 로그인 상태를 유지합니다." : "이 탭을 닫으면 다시 로그인합니다."}</small></span>
+        </label>}
         {mode === "signup" && <p className="signup-photo-note">프로필 사진은 가입 후 상단 프로필 버튼에서 설정할 수 있어요.</p>}
         {message && <p className="form-message">{message}</p>}
         <button className="primary-button" disabled={busy}>{busy ? "처리 중…" : mode === "login" ? "로그인" : "가입하기"}</button>
