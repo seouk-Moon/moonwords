@@ -15,12 +15,14 @@ export function HighlightedEnglish({
   onOpen,
   transientWord,
   transientStatus,
+  onTransientDismiss,
 }: {
   text: string;
   words: VocabularyItem[];
   onOpen: (word: VocabularyItem, element: HTMLButtonElement) => void;
   transientWord?: string;
   transientStatus?: "loading" | "done";
+  onTransientDismiss?: () => void;
 }) {
   const matches: Match[] = words.flatMap((word) => {
     const pattern = escapeRegExp(word.word.trim());
@@ -70,13 +72,19 @@ export function HighlightedEnglish({
       );
     } else {
       parts.push(
-        <mark
+        <button
+          type="button"
           className={`lookup-word-highlight ${transientStatus ?? ""}`}
           key={`lookup-${match.start}-${match.end}`}
-          title={transientStatus === "loading" ? "뜻을 찾는 중" : transientStatus === "done" ? "뜻 찾기 완료" : "선택한 단어"}
+          title={transientStatus === "loading" ? "뜻을 찾는 중" : transientStatus === "done" ? "다시 누르면 강조 해제" : "선택한 단어"}
+          onMouseUp={(event) => event.stopPropagation()}
+          onClick={(event) => {
+            event.stopPropagation();
+            if (transientStatus === "done") onTransientDismiss?.();
+          }}
         >
           {text.slice(match.start, match.end)}
-        </mark>,
+        </button>,
       );
     }
     cursor = match.end;

@@ -23,7 +23,8 @@ export function StudyView({ doc, words, progress, onSaveWord, onDeleteWord, onPr
   const activeLookup = useRef("");
   const lookupNoticeTimer = useRef<number | null>(null);
   const listeningRun = useRef(0);
-  const playNext = useRef<(index: number, run: number) => void>(() => undefined);
+  const playbackPosition = useRef({ sentenceIndex: 0, sentenceTime: 0, startedAt: 0 });
+  const playNext = useRef<(index: number, run: number, sentenceTime?: number, pauseOnStart?: boolean) => void>(() => undefined);
   const sentences = doc.analysis.sentences;
   const understood = progress.understood_sentence_ids;
   const difficultSentences = progress.bookmarked_sentence_ids;
@@ -69,9 +70,6 @@ export function StudyView({ doc, words, progress, onSaveWord, onDeleteWord, onPr
             setLookupHighlight((current) => current && current.sentenceId === sentenceId && current.word === word ? { ...current, status: "done" } : current);
             setLookupNotice(`✓ ${word} 뜻 찾기 완료`);
             lookupNoticeTimer.current = window.setTimeout(() => setLookupNotice(""), 1800);
-            window.setTimeout(() => {
-              setLookupHighlight((current) => current && current.sentenceId === sentenceId && current.word === word && current.status === "done" ? null : current);
-            }, 1800);
           } else {
             // Do not show a misleading "search failed" color for AI lookup. If a
             // network/function call is interrupted, simply remove the loading state.
@@ -94,29 +92,58 @@ export function StudyView({ doc, words, progress, onSaveWord, onDeleteWord, onPr
     window.getSelection()?.removeAllRanges();
   }, []);
 
+  const estimateSentenceDuration = useCallback((text: string) => {
+    const wordCount = text.trim().split(/\s+/).filter(Boolean).length;
+    return Math.max(1.2, wordCount / (2.35 * 0.86));
+  }, []);
+
+  const sentenceOffsetToCharIndex = useCallback((text: string, offsetSeconds: number) => {
+    const duration = estimateSentenceDuration(text);
+    if (offsetSeconds <= 0 || !text) return 0;
+    const roughIndex = Math.min(text.length - 1, Math.floor((offsetSeconds / duration) * text.length));
+    const nextSpace = text.indexOf(" ", roughIndex);
+    return nextSpace === -1 ? roughIndex : Math.min(nextSpace + 1, text.length);
+  }, [estimateSentenceDuration]);
+
   const stopListening = useCallback(() => {
     listeningRun.current += 1;
     window.speechSynthesis.cancel();
+    playbackPosition.current = { sentenceIndex: 0, sentenceTime: 0, startedAt: 0 };
     setListeningState("idle");
     setSpeakingSentenceId(null);
     setSingleSpeakingSentenceId(null);
   }, []);
 
-  playNext.current = (index, run) => {
+  playNext.current = (index, run, sentenceTime = 0, pauseOnStart = false) => {
     if (run !== listeningRun.current) return;
     if (index >= sentences.length) {
       setListeningState("idle");
       setSpeakingSentenceId(null);
+      playbackPosition.current = { sentenceIndex: 0, sentenceTime: 0, startedAt: 0 };
       return;
     }
     const sentence = sentences[index];
-    const utterance = new SpeechSynthesisUtterance(sentence.english);
+    const duration = estimateSentenceDuration(sentence.english);
+    const safeSentenceTime = Math.max(0, Math.min(sentenceTime, Math.max(0, duration - 0.15)));
+    const charIndex = sentenceOffsetToCharIndex(sentence.english, safeSentenceTime);
+    const remainingText = sentence.english.slice(charIndex).trimStart();
+    if (!remainingText) {
+      playNext.current(index + 1, run, 0, pauseOnStart);
+      return;
+    }
+    playbackPosition.current = { sentenceIndex: index, sentenceTime: safeSentenceTime, startedAt: 0 };
+    const utterance = new SpeechSynthesisUtterance(remainingText);
     utterance.lang = "en-US";
     utterance.rate = 0.86;
     utterance.onstart = () => {
       if (run !== listeningRun.current) return;
+      playbackPosition.current.startedAt = pauseOnStart ? 0 : performance.now();
       setSpeakingSentenceId(sentence.id);
       document.querySelector(`[data-sentence="${sentence.id}"]`)?.scrollIntoView({ behavior: "smooth", block: "center" });
+      if (pauseOnStart) {
+        window.speechSynthesis.pause();
+        setListeningState("paused");
+      }
     };
     utterance.onend = () => playNext.current(index + 1, run);
     utterance.onerror = () => {
@@ -129,21 +156,56 @@ export function StudyView({ doc, words, progress, onSaveWord, onDeleteWord, onPr
     listeningRun.current += 1;
     window.speechSynthesis.cancel();
     const run = listeningRun.current;
+    playbackPosition.current = { sentenceIndex: 0, sentenceTime: 0, startedAt: 0 };
     setSingleSpeakingSentenceId(null);
     setListeningState("playing");
     setSpeakingSentenceId(null);
     playNext.current(0, run);
   };
 
+  const currentSentenceTime = useCallback(() => {
+    const position = playbackPosition.current;
+    if (listeningState !== "playing" || !position.startedAt) return position.sentenceTime;
+    const duration = estimateSentenceDuration(sentences[position.sentenceIndex]?.english ?? "");
+    return Math.min(duration, position.sentenceTime + (performance.now() - position.startedAt) / 1000);
+  }, [estimateSentenceDuration, listeningState, sentences]);
+
   const toggleListeningPause = () => {
     if (listeningState === "playing") {
+      playbackPosition.current.sentenceTime = currentSentenceTime();
+      playbackPosition.current.startedAt = 0;
       window.speechSynthesis.pause();
       setListeningState("paused");
     } else if (listeningState === "paused") {
       window.speechSynthesis.resume();
+      playbackPosition.current.startedAt = performance.now();
       setListeningState("playing");
     }
   };
+
+  const seekFullListening = useCallback((deltaSeconds: number) => {
+    if (listeningState === "idle" || !sentences.length) return;
+    const durations = sentences.map((sentence) => estimateSentenceDuration(sentence.english));
+    const currentIndex = Math.max(0, Math.min(playbackPosition.current.sentenceIndex, sentences.length - 1));
+    const elapsedBefore = durations.slice(0, currentIndex).reduce((sum, duration) => sum + duration, 0);
+    const currentGlobalTime = elapsedBefore + currentSentenceTime();
+    const totalDuration = durations.reduce((sum, duration) => sum + duration, 0);
+    const targetGlobalTime = Math.max(0, Math.min(totalDuration, currentGlobalTime + deltaSeconds));
+    let remaining = targetGlobalTime;
+    let targetIndex = 0;
+    while (targetIndex < durations.length - 1 && remaining >= durations[targetIndex]) {
+      remaining -= durations[targetIndex];
+      targetIndex += 1;
+    }
+
+    const keepPaused = listeningState === "paused";
+    listeningRun.current += 1;
+    window.speechSynthesis.cancel();
+    const run = listeningRun.current;
+    setSingleSpeakingSentenceId(null);
+    setListeningState(keepPaused ? "paused" : "playing");
+    playNext.current(targetIndex, run, remaining, keepPaused);
+  }, [currentSentenceTime, estimateSentenceDuration, listeningState, sentences]);
 
   useEffect(() => {
     setShowOriginal(false);
@@ -313,7 +375,7 @@ export function StudyView({ doc, words, progress, onSaveWord, onDeleteWord, onPr
               const sentenceWords = words.filter((word) => word.sentence_id === sentence.id);
               return <div className={`sentence-pair ${understood.includes(sentence.id) ? "understood" : ""} ${difficultSentences.includes(sentence.id) ? "difficult" : ""} ${speakingSentenceId === sentence.id || singleSpeakingSentenceId === sentence.id ? "listening" : ""}`} data-sentence={sentence.id} key={sentence.id}>
                 <div className="sentence-number">{sentence.marked && <span className="source-mark" title="원본 밑줄 표시">★</span>}{sentence.id}</div>
-                <div className="sentence-copy"><p className="english"><HighlightedEnglish text={sentence.english} words={sentenceWords} onOpen={openSavedWord} transientWord={lookupHighlight?.sentenceId === sentence.id ? lookupHighlight.word : undefined} transientStatus={lookupHighlight?.sentenceId === sentence.id ? lookupHighlight.status : undefined} /></p><p className="korean">{sentence.korean}</p><div className="sentence-actions"><button className={singleSpeakingSentenceId === sentence.id ? "sentence-listen-active" : ""} aria-pressed={singleSpeakingSentenceId === sentence.id} onClick={() => speakSentence(sentence.id, sentence.english)}>{singleSpeakingSentenceId === sentence.id ? "■ 듣기 중" : "◉ 듣기"}</button><button onClick={() => toggle("understood_sentence_ids", sentence.id)}>{understood.includes(sentence.id) ? "✓ 이해함" : "○ 이해 체크"}</button><button onClick={() => toggle("bookmarked_sentence_ids", sentence.id)}>{difficultSentences.includes(sentence.id) ? "⚑ 어려운 문장 해제" : "⚐ 어려운 문장 체크"}</button></div></div>
+                <div className="sentence-copy"><p className="english"><HighlightedEnglish text={sentence.english} words={sentenceWords} onOpen={openSavedWord} transientWord={lookupHighlight?.sentenceId === sentence.id ? lookupHighlight.word : undefined} transientStatus={lookupHighlight?.sentenceId === sentence.id ? lookupHighlight.status : undefined} onTransientDismiss={() => setLookupHighlight(null)} /></p><p className="korean">{sentence.korean}</p><div className="sentence-actions"><button className={singleSpeakingSentenceId === sentence.id ? "sentence-listen-active" : ""} aria-pressed={singleSpeakingSentenceId === sentence.id} onClick={() => speakSentence(sentence.id, sentence.english)}>{singleSpeakingSentenceId === sentence.id ? "■ 듣기 중" : "◉ 듣기"}</button><button onClick={() => toggle("understood_sentence_ids", sentence.id)}>{understood.includes(sentence.id) ? "✓ 이해함" : "○ 이해 체크"}</button><button onClick={() => toggle("bookmarked_sentence_ids", sentence.id)}>{difficultSentences.includes(sentence.id) ? "⚑ 어려운 문장 해제" : "⚐ 어려운 문장 체크"}</button></div></div>
               </div>;
             })}
           </section>)}
@@ -326,6 +388,8 @@ export function StudyView({ doc, words, progress, onSaveWord, onDeleteWord, onPr
         sentenceCount={sentences.length}
         onPrimary={listeningState === "idle" ? startFullListening : toggleListeningPause}
         onStop={stopListening}
+        onSeekBackward={() => seekFullListening(-5)}
+        onSeekForward={() => seekFullListening(5)}
         floating
       />}
       {showOriginal && <>
