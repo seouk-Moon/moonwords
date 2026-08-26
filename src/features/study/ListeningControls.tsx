@@ -6,6 +6,8 @@ type Props = {
   sentenceCount: number;
   onPrimary: () => void;
   onStop: () => void;
+  onSeekBackward?: () => void;
+  onSeekForward?: () => void;
   floating?: boolean;
 };
 
@@ -15,6 +17,8 @@ export function ListeningControls({
   sentenceCount,
   onPrimary,
   onStop,
+  onSeekBackward,
+  onSeekForward,
   floating = false,
 }: Props) {
   const primaryLabel = state === "idle"
@@ -37,6 +41,11 @@ export function ListeningControls({
       aria-label={floating ? "본문 하단 듣기 컨트롤" : "본문 듣기 컨트롤"}
     >
       <div>
+        {floating && state !== "idle" && onSeekBackward && (
+          <button className="audio-seek" type="button" onClick={onSeekBackward} aria-label="5초 전으로 이동">
+            ↶ 5초
+          </button>
+        )}
         <button
           className="audio-play"
           type="button"
@@ -45,6 +54,11 @@ export function ListeningControls({
         >
           {primaryLabel}
         </button>
+        {floating && state !== "idle" && onSeekForward && (
+          <button className="audio-seek" type="button" onClick={onSeekForward} aria-label="5초 후로 이동">
+            5초 ↷
+          </button>
+        )}
         {state !== "idle" && <button type="button" onClick={onStop}>■ 정지</button>}
         <span aria-live="polite">{status}</span>
       </div>

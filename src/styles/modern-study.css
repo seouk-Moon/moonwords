@@ -1617,3 +1617,40 @@ button { font-weight: 650; }
   .audio-bottom-dock > div { justify-content: flex-start; }
   .audio-bottom-dock span { width: 100%; padding-left: 2px; }
 }
+
+/* Requested mobile listening refinements: persistent lookup tap target, dock above nav, ±5s controls. */
+.lookup-word-highlight {
+  display: inline;
+  margin: 0;
+  border: 0;
+  padding: 0 2px;
+  font: inherit;
+  line-height: inherit;
+  text-align: inherit;
+  cursor: pointer;
+  -webkit-appearance: none;
+  appearance: none;
+}
+.audio-bottom-dock .audio-seek {
+  min-width: 54px;
+  white-space: nowrap;
+}
+@media (max-width: 900px) {
+  .audio-bottom-dock {
+    bottom: calc(76px + env(safe-area-inset-bottom));
+  }
+}
+@media (max-width: 620px) {
+  .audio-bottom-dock {
+    bottom: calc(76px + env(safe-area-inset-bottom));
+  }
+  .audio-bottom-dock > div {
+    justify-content: center;
+  }
+  .audio-bottom-dock button {
+    padding-inline: 10px;
+  }
+  .audio-bottom-dock span {
+    text-align: center;
+  }
+}
