@@ -8,6 +8,7 @@ import {
 import { savePendingPdfTransfer } from "./transfer";
 
 const MAX_PDF_FILE_SIZE = 50 * 1024 * 1024;
+const MOONWORDS_HOME_HREF = "./index.html";
 
 const withoutExtension = (fileName: string) => fileName.replace(/\.pdf$/i, "").trim();
 
@@ -153,7 +154,7 @@ export function PdfExtractorApp() {
       text: normalizedText.slice(0, MAX_DOCUMENT_TEXT_LENGTH),
       sourceName: file?.name ?? "pdf-text.txt",
     });
-    window.location.assign(new URL("./", window.location.href).href);
+    window.location.assign(new URL(MOONWORDS_HOME_HREF, window.location.href).href);
   };
 
   const chooseAnotherFile = () => {
@@ -165,8 +166,8 @@ export function PdfExtractorApp() {
   return (
     <div className="pdf-tool-shell">
       <header className="pdf-tool-header">
-        <a className="pdf-tool-brand" href="./" aria-label="MoonWords 홈으로 이동"><Logo /></a>
-        <a className="pdf-tool-back" href="./">Moonwords 학습실로 돌아가기 <span aria-hidden="true">→</span></a>
+        <a className="pdf-tool-brand" href={MOONWORDS_HOME_HREF} aria-label="MoonWords 홈으로 이동"><Logo /></a>
+        <a className="pdf-tool-back" href={MOONWORDS_HOME_HREF}>Moonwords 학습실로 돌아가기 <span aria-hidden="true">→</span></a>
       </header>
 
       <main className="pdf-tool-main">
@@ -250,7 +251,7 @@ export function PdfExtractorApp() {
 
       <footer className="pdf-tool-footer">
         <span>© 2026 MoonWords · PDF Text Extractor</span>
-        <a href="./">영어 학습실 열기</a>
+        <a href={MOONWORDS_HOME_HREF}>영어 학습실 열기</a>
       </footer>
     </div>
   );

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { cloudConfigured, configureSupabase, supabase } from "./lib/supabase";
 import { AppHeader } from "./components/layout/AppHeader";
 import { MobileBottomNav } from "./components/layout/MobileBottomNav";
@@ -18,6 +18,7 @@ import { LegalPage } from "./features/legal/LegalPage";
 import { ProfilePage } from "./features/profile/ProfilePage";
 import { useStudyWorkspace } from "./hooks/useStudyWorkspace";
 import { useQuizGeneration } from "./hooks/useQuizGeneration";
+import type { View } from "./app-types";
 import {
   clearPendingPdfTransfer,
   readPendingPdfTransfer,
@@ -35,6 +36,7 @@ export default function App({ supabaseUrl, supabasePublishableKey }: AppProps = 
   const [uploadFolderId, setUploadFolderId] = useState<string | null>(null);
   const [infoPage, setInfoPage] = useState<InfoPage | null>(null);
   const [pdfTransfer, setPdfTransfer] = useState<PdfTextTransfer | null>(null);
+  const pdfTransferOpenedRef = useRef(false);
 
   const workspace = useStudyWorkspace(configured);
   const quizGeneration = useQuizGeneration({
@@ -56,7 +58,8 @@ export default function App({ supabaseUrl, supabasePublishableKey }: AppProps = 
   }, []);
 
   useEffect(() => {
-    if (!pdfTransfer || workspaceLoading || !workspaceSession) return;
+    if (!pdfTransfer || workspaceLoading || !workspaceSession || pdfTransferOpenedRef.current) return;
+    pdfTransferOpenedRef.current = true;
     const frame = window.requestAnimationFrame(() => {
       setUploadFolderId(null);
       setInfoPage(null);
@@ -65,6 +68,24 @@ export default function App({ supabaseUrl, supabasePublishableKey }: AppProps = 
     });
     return () => window.cancelAnimationFrame(frame);
   }, [pdfTransfer, workspaceLoading, workspaceSession, setWorkspaceView]);
+
+  const discardPdfTransfer = () => {
+    pdfTransferOpenedRef.current = true;
+    setPdfTransfer(null);
+    clearPendingPdfTransfer();
+  };
+
+  const navigateToView = (view: View) => {
+    setInfoPage(null);
+    if (view !== "upload") discardPdfTransfer();
+    workspace.setView(view);
+  };
+
+  const openManualUpload = (folderId: string | null = null) => {
+    discardPdfTransfer();
+    setUploadFolderId(folderId);
+    workspace.setView("upload");
+  };
 
   if (workspace.loading) {
     return <div className="loading-screen"><Logo /><p>내 학습실을 여는 중…</p><SupportChatbot context={{ view: "loading", configured, signedIn: false }} /></div>;
@@ -84,7 +105,7 @@ export default function App({ supabaseUrl, supabasePublishableKey }: AppProps = 
         hasCurrent={Boolean(workspace.current)}
         configured={configured}
         session={workspace.session}
-        onView={(view) => { setInfoPage(null); workspace.setView(view); }}
+        onView={navigateToView}
         onSignOut={() => { void supabase?.auth.signOut({ scope: "local" }); }}
       />
 
@@ -102,7 +123,7 @@ export default function App({ supabaseUrl, supabasePublishableKey }: AppProps = 
           documents={workspace.documents}
           folders={workspace.folders}
           onOpen={workspace.openDocument}
-          onUpload={(folderId = null) => { setUploadFolderId(folderId); workspace.setView("upload"); }}
+          onUpload={openManualUpload}
           onCreateFolder={workspace.createFolder}
           onRenameFolder={workspace.renameFolder}
           onDeleteFolder={workspace.deleteFolder}
@@ -121,12 +142,11 @@ export default function App({ supabaseUrl, supabasePublishableKey }: AppProps = 
           initialText={pdfTransfer?.text}
           importedFromPdfTool={Boolean(pdfTransfer)}
           onCreated={(document) => {
-            setPdfTransfer(null);
+            discardPdfTransfer();
             workspace.addDocumentAndOpen(document);
           }}
           onCancel={() => {
-            setPdfTransfer(null);
-            workspace.setView("library");
+            navigateToView("library");
           }}
         />
       )}
@@ -174,7 +194,7 @@ export default function App({ supabaseUrl, supabasePublishableKey }: AppProps = 
         <ProfilePage
           session={workspace.session}
           analytics={workspace.learningAnalytics}
-          onBack={() => workspace.setView("library")}
+          onBack={() => navigateToView("library")}
         />
       )}
 
@@ -183,7 +203,7 @@ export default function App({ supabaseUrl, supabasePublishableKey }: AppProps = 
       {!infoPage && <MobileBottomNav
         view={workspace.view}
         hasCurrent={Boolean(workspace.current)}
-        onView={(view) => { setInfoPage(null); workspace.setView(view); }}
+        onView={navigateToView}
       />}
 
       <SupportChatbot context={{
