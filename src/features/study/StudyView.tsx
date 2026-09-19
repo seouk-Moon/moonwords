@@ -1,21 +1,37 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "../../lib/supabase";
 import { cleanSelection, sameLexeme } from "../../lib/app-utils";
+import { buildStudySectionGroups } from "../../lib/analysis-normalization";
 import type { SelectedWord } from "../../app-types";
 import type { StudyDocument, StudyProgress, VocabularyItem } from "../../types";
 import { HighlightedEnglish } from "./HighlightedEnglish";
-import { ListeningControls } from "./ListeningControls";
+import { ListeningControls, PlaybackIcon } from "./ListeningControls";
 
-export function StudyView({ doc, words, progress, onSaveWord, onDeleteWord, onProgress }: { doc: StudyDocument; words: VocabularyItem[]; progress: StudyProgress; onSaveWord: (word: Omit<VocabularyItem, "id" | "user_id" | "created_at" | "updated_at">) => Promise<void>; onDeleteWord: (id: string) => Promise<void>; onProgress: (next: StudyProgress) => void }) {
+type Props = {
+  doc: StudyDocument;
+  words: VocabularyItem[];
+  progress: StudyProgress;
+  onSaveWord: (word: Omit<VocabularyItem, "id" | "user_id" | "created_at" | "updated_at">) => Promise<void>;
+  onDeleteWord: (id: string) => Promise<void>;
+  onProgress: (next: StudyProgress) => void;
+  onRenameDocument: (documentId: string, title: string) => Promise<void>;
+};
+
+export function StudyView({ doc, words, progress, onSaveWord, onDeleteWord, onProgress, onRenameDocument }: Props) {
   const [selected, setSelected] = useState<SelectedWord | null>(null);
   const [loadingMeaning, setLoadingMeaning] = useState(false);
   const [lookupHighlight, setLookupHighlight] = useState<{ word: string; sentenceId: number; status: "loading" | "done" } | null>(null);
   const [lookupNotice, setLookupNotice] = useState("");
   const [listeningState, setListeningState] = useState<"idle" | "playing" | "paused">("idle");
-  const [speakingSentenceId, setSpeakingSentenceId] = useState<number | null>(null);
-  const [singleSpeakingSentenceId, setSingleSpeakingSentenceId] = useState<number | null>(null);
+  const [speakingSentenceIndex, setSpeakingSentenceIndex] = useState<number | null>(null);
+  const [singleSpeakingSentenceIndex, setSingleSpeakingSentenceIndex] = useState<number | null>(null);
+  const [singleListeningState, setSingleListeningState] = useState<"idle" | "playing" | "paused">("idle");
   const [showFloatingListeningControls, setShowFloatingListeningControls] = useState(false);
   const [showOriginal, setShowOriginal] = useState(false);
+  const [editingTitle, setEditingTitle] = useState(false);
+  const [titleDraft, setTitleDraft] = useState(doc.title);
+  const [titleSaving, setTitleSaving] = useState(false);
+  const [titleError, setTitleError] = useState("");
   const articleRef = useRef<HTMLDivElement>(null);
   const topListeningRef = useRef<HTMLDivElement>(null);
   const popoverRef = useRef<HTMLDivElement>(null);
@@ -24,9 +40,8 @@ export function StudyView({ doc, words, progress, onSaveWord, onDeleteWord, onPr
   const lookupNoticeTimer = useRef<number | null>(null);
   const listeningRun = useRef(0);
   const playbackPosition = useRef({ sentenceIndex: 0, sentenceTime: 0, startedAt: 0 });
-  const playNext = useRef<(index: number, run: number, sentenceTime?: number, pauseOnStart?: boolean) => void>(() => undefined);
   const sentences = doc.analysis.sentences;
-  const understood = progress.understood_sentence_ids;
+  const studySections = useMemo(() => buildStudySectionGroups(doc.analysis), [doc.analysis]);
   const difficultSentences = progress.bookmarked_sentence_ids;
 
   const selectWord = useCallback(async () => {
@@ -35,8 +50,11 @@ export function StudyView({ doc, words, progress, onSaveWord, onDeleteWord, onPr
     if (!word || word.length > 60 || !selection?.rangeCount) return;
     const anchor = selection.anchorNode?.parentElement?.closest<HTMLElement>("[data-sentence]");
     if (!anchor) return;
+    const sentenceIndex = Number(anchor.dataset.sentenceIndex);
     const sentenceId = Number(anchor.dataset.sentence);
-    const sentence = sentences.find((item) => item.id === sentenceId);
+    const sentence = Number.isInteger(sentenceIndex)
+      ? sentences[sentenceIndex]
+      : sentences.find((item) => item.id === sentenceId);
     if (!sentence) return;
     const cacheKey = `${sentenceId}:${word.toLowerCase()}`;
     const cached = meaningCache.current.get(cacheKey);
@@ -110,15 +128,16 @@ export function StudyView({ doc, words, progress, onSaveWord, onDeleteWord, onPr
     window.speechSynthesis.cancel();
     playbackPosition.current = { sentenceIndex: 0, sentenceTime: 0, startedAt: 0 };
     setListeningState("idle");
-    setSpeakingSentenceId(null);
-    setSingleSpeakingSentenceId(null);
+    setSpeakingSentenceIndex(null);
+    setSingleSpeakingSentenceIndex(null);
+    setSingleListeningState("idle");
   }, []);
 
-  playNext.current = (index, run, sentenceTime = 0, pauseOnStart = false) => {
+  const playNext = useCallback(function playNext(index: number, run: number, sentenceTime = 0, pauseOnStart = false) {
     if (run !== listeningRun.current) return;
     if (index >= sentences.length) {
       setListeningState("idle");
-      setSpeakingSentenceId(null);
+      setSpeakingSentenceIndex(null);
       playbackPosition.current = { sentenceIndex: 0, sentenceTime: 0, startedAt: 0 };
       return;
     }
@@ -128,7 +147,7 @@ export function StudyView({ doc, words, progress, onSaveWord, onDeleteWord, onPr
     const charIndex = sentenceOffsetToCharIndex(sentence.english, safeSentenceTime);
     const remainingText = sentence.english.slice(charIndex).trimStart();
     if (!remainingText) {
-      playNext.current(index + 1, run, 0, pauseOnStart);
+      playNext(index + 1, run, 0, pauseOnStart);
       return;
     }
     playbackPosition.current = { sentenceIndex: index, sentenceTime: safeSentenceTime, startedAt: 0 };
@@ -138,29 +157,30 @@ export function StudyView({ doc, words, progress, onSaveWord, onDeleteWord, onPr
     utterance.onstart = () => {
       if (run !== listeningRun.current) return;
       playbackPosition.current.startedAt = pauseOnStart ? 0 : performance.now();
-      setSpeakingSentenceId(sentence.id);
-      document.querySelector(`[data-sentence="${sentence.id}"]`)?.scrollIntoView({ behavior: "smooth", block: "center" });
+      setSpeakingSentenceIndex(index);
+      document.querySelector(`[data-sentence-index="${index}"]`)?.scrollIntoView({ behavior: "smooth", block: "center" });
       if (pauseOnStart) {
         window.speechSynthesis.pause();
         setListeningState("paused");
       }
     };
-    utterance.onend = () => playNext.current(index + 1, run);
+    utterance.onend = () => playNext(index + 1, run);
     utterance.onerror = () => {
       if (run === listeningRun.current) stopListening();
     };
     window.speechSynthesis.speak(utterance);
-  };
+  }, [estimateSentenceDuration, sentenceOffsetToCharIndex, sentences, stopListening]);
 
   const startFullListening = () => {
     listeningRun.current += 1;
     window.speechSynthesis.cancel();
     const run = listeningRun.current;
     playbackPosition.current = { sentenceIndex: 0, sentenceTime: 0, startedAt: 0 };
-    setSingleSpeakingSentenceId(null);
+    setSingleSpeakingSentenceIndex(null);
+    setSingleListeningState("idle");
     setListeningState("playing");
-    setSpeakingSentenceId(null);
-    playNext.current(0, run);
+    setSpeakingSentenceIndex(null);
+    playNext(0, run);
   };
 
   const currentSentenceTime = useCallback(() => {
@@ -202,21 +222,15 @@ export function StudyView({ doc, words, progress, onSaveWord, onDeleteWord, onPr
     listeningRun.current += 1;
     window.speechSynthesis.cancel();
     const run = listeningRun.current;
-    setSingleSpeakingSentenceId(null);
+    setSingleSpeakingSentenceIndex(null);
     setListeningState(keepPaused ? "paused" : "playing");
-    playNext.current(targetIndex, run, remaining, keepPaused);
-  }, [currentSentenceTime, estimateSentenceDuration, listeningState, sentences]);
+    playNext(targetIndex, run, remaining, keepPaused);
+  }, [currentSentenceTime, estimateSentenceDuration, listeningState, playNext, sentences]);
 
-  useEffect(() => {
-    setShowOriginal(false);
-    setListeningState("idle");
-    setSpeakingSentenceId(null);
-    setSingleSpeakingSentenceId(null);
-    return () => {
+  useEffect(() => () => {
       listeningRun.current += 1;
       window.speechSynthesis.cancel();
-    };
-  }, [doc.id]);
+  }, []);
 
   useEffect(() => {
     const target = topListeningRef.current;
@@ -260,26 +274,40 @@ export function StudyView({ doc, words, progress, onSaveWord, onDeleteWord, onPr
     };
   }, [selectWord]);
 
-  const toggle = (key: "understood_sentence_ids" | "bookmarked_sentence_ids", id: number) => {
-    const current = progress[key];
-    onProgress({ ...progress, [key]: current.includes(id) ? current.filter((value) => value !== id) : [...current, id], last_studied_at: new Date().toISOString() });
+  const toggleDifficultSentence = (id: number) => {
+    const current = progress.bookmarked_sentence_ids;
+    onProgress({
+      ...progress,
+      bookmarked_sentence_ids: current.includes(id) ? current.filter((value) => value !== id) : [...current, id],
+      last_studied_at: new Date().toISOString(),
+    });
   };
-  const speakSentence = (sentenceId: number, text: string) => {
-    if (singleSpeakingSentenceId === sentenceId) {
-      stopListening();
+  const speakSentence = (sentenceIndex: number, text: string) => {
+    if (singleSpeakingSentenceIndex === sentenceIndex) {
+      if (singleListeningState === "playing") {
+        window.speechSynthesis.pause();
+        setSingleListeningState("paused");
+      } else if (singleListeningState === "paused") {
+        window.speechSynthesis.resume();
+        setSingleListeningState("playing");
+      }
       return;
     }
     listeningRun.current += 1;
     window.speechSynthesis.cancel();
     const run = listeningRun.current;
     setListeningState("idle");
-    setSpeakingSentenceId(null);
-    setSingleSpeakingSentenceId(sentenceId);
+    setSpeakingSentenceIndex(null);
+    setSingleSpeakingSentenceIndex(sentenceIndex);
+    setSingleListeningState("playing");
     const utterance = new SpeechSynthesisUtterance(text);
     utterance.lang = "en-US";
     utterance.rate = 0.86;
     const finish = () => {
-      if (run === listeningRun.current) setSingleSpeakingSentenceId(null);
+      if (run === listeningRun.current) {
+        setSingleSpeakingSentenceIndex(null);
+        setSingleListeningState("idle");
+      }
     };
     utterance.onend = finish;
     utterance.onerror = finish;
@@ -335,15 +363,56 @@ export function StudyView({ doc, words, progress, onSaveWord, onDeleteWord, onPr
     setSelected(null);
     window.getSelection()?.removeAllRanges();
   };
+  const beginTitleEdit = () => {
+    setTitleDraft(doc.title);
+    setTitleError("");
+    setEditingTitle(true);
+  };
+  const cancelTitleEdit = () => {
+    setTitleDraft(doc.title);
+    setTitleError("");
+    setEditingTitle(false);
+  };
+  const saveTitle = async () => {
+    setTitleSaving(true);
+    setTitleError("");
+    try {
+      await onRenameDocument(doc.id, titleDraft);
+      setEditingTitle(false);
+    } catch (error) {
+      setTitleError(error instanceof Error ? error.message : "본문 제목을 변경하지 못했습니다.");
+    } finally {
+      setTitleSaving(false);
+    }
+  };
 
   return (
     <main className="study-page">
       <section className="reading-head">
         <span className="eyebrow">{doc.analysis.topic}</span>
-        <h1>{doc.title}</h1>
+        {editingTitle ? (
+          <form className="reading-title-editor" onSubmit={(event) => { event.preventDefault(); void saveTitle(); }}>
+            <input
+              autoFocus
+              value={titleDraft}
+              maxLength={160}
+              disabled={titleSaving}
+              onChange={(event) => setTitleDraft(event.target.value)}
+              aria-label="본문 제목"
+            />
+            <button type="submit" disabled={titleSaving || !titleDraft.trim()}>{titleSaving ? "저장 중…" : "저장"}</button>
+            <button type="button" disabled={titleSaving} onClick={cancelTitleEdit}>취소</button>
+          </form>
+        ) : (
+          <div className="reading-title-row">
+            <h1>{doc.title}</h1>
+            <button type="button" onClick={beginTitleEdit} aria-label="본문 제목 변경">✎ 제목 변경</button>
+          </div>
+        )}
+        {titleError && <p className="reading-title-error" role="alert">{titleError}</p>}
         <p>{doc.analysis.summary}</p>
         <div className="study-stats">
-          <span>{sentences.length} 문장</span><span>{understood.length} 이해 완료</span><span>{difficultSentences.length} 어려운 문장</span><span>{words.length} 저장 단어</span><span>{doc.analysis.level}</span>
+          <span>{sentences.length} 문장</span><span>{difficultSentences.length} 어려운 문장</span><span>{words.length} 저장 단어</span><span>{doc.analysis.level}</span>
         </div>
         <div className="reading-head-actions">
           <button className="original-text-toggle" onClick={() => void openOriginalFile()}>▤ 원문 보기</button>
@@ -363,28 +432,30 @@ export function StudyView({ doc, words, progress, onSaveWord, onDeleteWord, onPr
           <div ref={topListeningRef}>
             <ListeningControls
               state={listeningState}
-              currentSentenceIndex={speakingSentenceId ? sentences.findIndex((sentence) => sentence.id === speakingSentenceId) + 1 : 0}
+              currentSentenceIndex={speakingSentenceIndex === null ? 0 : speakingSentenceIndex + 1}
               sentenceCount={sentences.length}
               onPrimary={listeningState === "idle" ? startFullListening : toggleListeningPause}
               onStop={stopListening}
             />
           </div>
-          {doc.analysis.sections.map((section) => <section className="paragraph-block" key={section.id}>
-            <header><span>{String(section.id).padStart(2, "0")}</span><div><b>{section.label}</b><small>{section.role}</small></div></header>
-            {sentences.filter((sentence) => sentence.paragraph === section.id).map((sentence) => {
+          {studySections.map((group, sectionIndex) => <section className="paragraph-block" key={group.key}>
+            <header><span>{String(sectionIndex + 1).padStart(2, "0")}</span><div><b>{group.section.label}</b><small>{group.section.role}</small></div></header>
+            {group.sentences.map(({ sentence, displayNumber, sourceIndex }) => {
               const sentenceWords = words.filter((word) => word.sentence_id === sentence.id);
-              return <div className={`sentence-pair ${understood.includes(sentence.id) ? "understood" : ""} ${difficultSentences.includes(sentence.id) ? "difficult" : ""} ${speakingSentenceId === sentence.id || singleSpeakingSentenceId === sentence.id ? "listening" : ""}`} data-sentence={sentence.id} key={sentence.id}>
-                <div className="sentence-number">{sentence.marked && <span className="source-mark" title="원본 밑줄 표시">★</span>}{sentence.id}</div>
-                <div className="sentence-copy"><p className="english"><HighlightedEnglish text={sentence.english} words={sentenceWords} onOpen={openSavedWord} transientWord={lookupHighlight?.sentenceId === sentence.id ? lookupHighlight.word : undefined} transientStatus={lookupHighlight?.sentenceId === sentence.id ? lookupHighlight.status : undefined} onTransientDismiss={() => setLookupHighlight(null)} /></p><p className="korean">{sentence.korean}</p><div className="sentence-actions"><button className={singleSpeakingSentenceId === sentence.id ? "sentence-listen-active" : ""} aria-pressed={singleSpeakingSentenceId === sentence.id} onClick={() => speakSentence(sentence.id, sentence.english)}>{singleSpeakingSentenceId === sentence.id ? "■ 듣기 중" : "◉ 듣기"}</button><button onClick={() => toggle("understood_sentence_ids", sentence.id)}>{understood.includes(sentence.id) ? "✓ 이해함" : "○ 이해 체크"}</button><button onClick={() => toggle("bookmarked_sentence_ids", sentence.id)}>{difficultSentences.includes(sentence.id) ? "⚑ 어려운 문장 해제" : "⚐ 어려운 문장 체크"}</button></div></div>
+              const sentenceIsPlaying = singleSpeakingSentenceIndex === sourceIndex && singleListeningState === "playing";
+              const sentenceIsActive = singleSpeakingSentenceIndex === sourceIndex && singleListeningState !== "idle";
+              return <div className={`sentence-pair ${difficultSentences.includes(sentence.id) ? "difficult" : ""} ${speakingSentenceIndex === sourceIndex || sentenceIsActive ? "listening" : ""}`} data-sentence={sentence.id} data-sentence-index={sourceIndex} key={`${sentence.id}-${sourceIndex}`}>
+                <div className="sentence-number">{sentence.marked && <span className="source-mark" title="원본 밑줄 표시">★</span>}{displayNumber}</div>
+                <div className="sentence-copy"><p className="english"><HighlightedEnglish text={sentence.english} words={sentenceWords} onOpen={openSavedWord} transientWord={lookupHighlight?.sentenceId === sentence.id ? lookupHighlight.word : undefined} transientStatus={lookupHighlight?.sentenceId === sentence.id ? lookupHighlight.status : undefined} onTransientDismiss={() => setLookupHighlight(null)} /></p><p className="korean">{sentence.korean}</p><div className="sentence-actions"><button className={sentenceIsActive ? "sentence-listen-active" : ""} aria-pressed={sentenceIsActive} onClick={() => speakSentence(sourceIndex, sentence.english)}><PlaybackIcon name={sentenceIsPlaying ? "pause" : "play"} />{sentenceIsPlaying ? "일시정지" : sentenceIsActive ? "계속 듣기" : "듣기"}</button><button onClick={() => toggleDifficultSentence(sentence.id)}>{difficultSentences.includes(sentence.id) ? "⚑ 어려운 문장 해제" : "⚐ 어려운 문장 체크"}</button></div></div>
               </div>;
             })}
           </section>)}
         </article>
-        <aside className="insight-panel" onScroll={() => setSelected(null)}><span className="section-kicker">READING MAP</span><h3>본문 구조</h3><p>{doc.analysis.structure}</p><div className="structure-list">{doc.analysis.sections.map((section) => <div key={section.id}><b>{section.id}</b><span>{section.label}<small>{section.role}</small></span></div>)}</div><div className="progress-ring"><strong>{Math.round((understood.length / Math.max(sentences.length, 1)) * 100)}%</strong><span>이해 완료</span></div></aside>
+        <aside className="insight-panel" onScroll={() => setSelected(null)}><span className="section-kicker">READING MAP</span><h3>본문 구조</h3><p>{doc.analysis.structure}</p><div className="structure-list">{studySections.map((group, index) => <div key={group.key}><b>{index + 1}</b><span>{group.section.label}<small>{group.section.role}</small></span></div>)}</div></aside>
       </div>
-      {showFloatingListeningControls && singleSpeakingSentenceId === null && <ListeningControls
+      {showFloatingListeningControls && singleSpeakingSentenceIndex === null && <ListeningControls
         state={listeningState}
-        currentSentenceIndex={speakingSentenceId ? sentences.findIndex((sentence) => sentence.id === speakingSentenceId) + 1 : 0}
+        currentSentenceIndex={speakingSentenceIndex === null ? 0 : speakingSentenceIndex + 1}
         sentenceCount={sentences.length}
         onPrimary={listeningState === "idle" ? startFullListening : toggleListeningPause}
         onStop={stopListening}
@@ -399,7 +470,7 @@ export function StudyView({ doc, words, progress, onSaveWord, onDeleteWord, onPr
             <div><span className="section-kicker">ORIGINAL SOURCE</span><h2>원문 보기</h2><p>{doc.source_name || doc.title}</p></div>
             <div className="original-source-header-actions">{doc.source_file_path && <button className="open-source-file" onClick={() => void openOriginalFile()}>원본 파일 열기 ↗</button>}<button className="close-source-drawer" onClick={() => setShowOriginal(false)} aria-label="원문 닫기">×</button></div>
           </header>
-          <div className="original-source-note">학습 화면의 번역·단어장·이해 체크·퀴즈 기능은 그대로 유지됩니다. 필요할 때 이 원문을 참고하세요.</div>
+          <div className="original-source-note">학습 화면의 번역·단어장·어려운 문장 체크·퀴즈 기능은 그대로 유지됩니다. 필요할 때 이 원문을 참고하세요.</div>
           <article className="original-source-text">{doc.original_text?.trim() || sentences.map((sentence) => sentence.english).join("\n\n")}</article>
         </aside>
       </>}
