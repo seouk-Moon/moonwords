@@ -23,8 +23,13 @@ export function StudyView({ doc, words, progress, onSaveWord, onDeleteWord, onPr
   const [lookupHighlight, setLookupHighlight] = useState<{ word: string; sentenceId: number; status: "loading" | "done" } | null>(null);
   const [lookupNotice, setLookupNotice] = useState("");
   const [listeningState, setListeningState] = useState<"idle" | "playing" | "paused">("idle");
+<<<<<<< HEAD
   const [speakingSentenceIndex, setSpeakingSentenceIndex] = useState<number | null>(null);
   const [singleSpeakingSentenceIndex, setSingleSpeakingSentenceIndex] = useState<number | null>(null);
+=======
+  const [speakingSentenceId, setSpeakingSentenceId] = useState<number | null>(null);
+  const [singleSpeakingSentenceId, setSingleSpeakingSentenceId] = useState<number | null>(null);
+>>>>>>> 9d6fce52c3a2276842e97472a9abda1ab4984a91
   const [singleListeningState, setSingleListeningState] = useState<"idle" | "playing" | "paused">("idle");
   const [showFloatingListeningControls, setShowFloatingListeningControls] = useState(false);
   const [showOriginal, setShowOriginal] = useState(false);
@@ -41,7 +46,10 @@ export function StudyView({ doc, words, progress, onSaveWord, onDeleteWord, onPr
   const listeningRun = useRef(0);
   const playbackPosition = useRef({ sentenceIndex: 0, sentenceTime: 0, startedAt: 0 });
   const sentences = doc.analysis.sentences;
+<<<<<<< HEAD
   const studySections = useMemo(() => buildStudySectionGroups(doc.analysis), [doc.analysis]);
+=======
+>>>>>>> 9d6fce52c3a2276842e97472a9abda1ab4984a91
   const difficultSentences = progress.bookmarked_sentence_ids;
 
   const selectWord = useCallback(async () => {
@@ -128,8 +136,13 @@ export function StudyView({ doc, words, progress, onSaveWord, onDeleteWord, onPr
     window.speechSynthesis.cancel();
     playbackPosition.current = { sentenceIndex: 0, sentenceTime: 0, startedAt: 0 };
     setListeningState("idle");
+<<<<<<< HEAD
     setSpeakingSentenceIndex(null);
     setSingleSpeakingSentenceIndex(null);
+=======
+    setSpeakingSentenceId(null);
+    setSingleSpeakingSentenceId(null);
+>>>>>>> 9d6fce52c3a2276842e97472a9abda1ab4984a91
     setSingleListeningState("idle");
   }, []);
 
@@ -176,10 +189,17 @@ export function StudyView({ doc, words, progress, onSaveWord, onDeleteWord, onPr
     window.speechSynthesis.cancel();
     const run = listeningRun.current;
     playbackPosition.current = { sentenceIndex: 0, sentenceTime: 0, startedAt: 0 };
+<<<<<<< HEAD
     setSingleSpeakingSentenceIndex(null);
     setSingleListeningState("idle");
     setListeningState("playing");
     setSpeakingSentenceIndex(null);
+=======
+    setSingleSpeakingSentenceId(null);
+    setSingleListeningState("idle");
+    setListeningState("playing");
+    setSpeakingSentenceId(null);
+>>>>>>> 9d6fce52c3a2276842e97472a9abda1ab4984a91
     playNext(0, run);
   };
 
@@ -282,8 +302,13 @@ export function StudyView({ doc, words, progress, onSaveWord, onDeleteWord, onPr
       last_studied_at: new Date().toISOString(),
     });
   };
+<<<<<<< HEAD
   const speakSentence = (sentenceIndex: number, text: string) => {
     if (singleSpeakingSentenceIndex === sentenceIndex) {
+=======
+  const speakSentence = (sentenceId: number, text: string) => {
+    if (singleSpeakingSentenceId === sentenceId) {
+>>>>>>> 9d6fce52c3a2276842e97472a9abda1ab4984a91
       if (singleListeningState === "playing") {
         window.speechSynthesis.pause();
         setSingleListeningState("paused");
@@ -297,15 +322,24 @@ export function StudyView({ doc, words, progress, onSaveWord, onDeleteWord, onPr
     window.speechSynthesis.cancel();
     const run = listeningRun.current;
     setListeningState("idle");
+<<<<<<< HEAD
     setSpeakingSentenceIndex(null);
     setSingleSpeakingSentenceIndex(sentenceIndex);
+=======
+    setSpeakingSentenceId(null);
+    setSingleSpeakingSentenceId(sentenceId);
+>>>>>>> 9d6fce52c3a2276842e97472a9abda1ab4984a91
     setSingleListeningState("playing");
     const utterance = new SpeechSynthesisUtterance(text);
     utterance.lang = "en-US";
     utterance.rate = 0.86;
     const finish = () => {
       if (run === listeningRun.current) {
+<<<<<<< HEAD
         setSingleSpeakingSentenceIndex(null);
+=======
+        setSingleSpeakingSentenceId(null);
+>>>>>>> 9d6fce52c3a2276842e97472a9abda1ab4984a91
         setSingleListeningState("idle");
       }
     };
@@ -442,16 +476,28 @@ export function StudyView({ doc, words, progress, onSaveWord, onDeleteWord, onPr
             <header><span>{String(sectionIndex + 1).padStart(2, "0")}</span><div><b>{group.section.label}</b><small>{group.section.role}</small></div></header>
             {group.sentences.map(({ sentence, displayNumber, sourceIndex }) => {
               const sentenceWords = words.filter((word) => word.sentence_id === sentence.id);
+<<<<<<< HEAD
               const sentenceIsPlaying = singleSpeakingSentenceIndex === sourceIndex && singleListeningState === "playing";
               const sentenceIsActive = singleSpeakingSentenceIndex === sourceIndex && singleListeningState !== "idle";
               return <div className={`sentence-pair ${difficultSentences.includes(sentence.id) ? "difficult" : ""} ${speakingSentenceIndex === sourceIndex || sentenceIsActive ? "listening" : ""}`} data-sentence={sentence.id} data-sentence-index={sourceIndex} key={`${sentence.id}-${sourceIndex}`}>
                 <div className="sentence-number">{sentence.marked && <span className="source-mark" title="원본 밑줄 표시">★</span>}{displayNumber}</div>
                 <div className="sentence-copy"><p className="english"><HighlightedEnglish text={sentence.english} words={sentenceWords} onOpen={openSavedWord} transientWord={lookupHighlight?.sentenceId === sentence.id ? lookupHighlight.word : undefined} transientStatus={lookupHighlight?.sentenceId === sentence.id ? lookupHighlight.status : undefined} onTransientDismiss={() => setLookupHighlight(null)} /></p><p className="korean">{sentence.korean}</p><div className="sentence-actions"><button className={sentenceIsActive ? "sentence-listen-active" : ""} aria-pressed={sentenceIsActive} onClick={() => speakSentence(sourceIndex, sentence.english)}><PlaybackIcon name={sentenceIsPlaying ? "pause" : "play"} />{sentenceIsPlaying ? "일시정지" : sentenceIsActive ? "계속 듣기" : "듣기"}</button><button onClick={() => toggleDifficultSentence(sentence.id)}>{difficultSentences.includes(sentence.id) ? "⚑ 어려운 문장 해제" : "⚐ 어려운 문장 체크"}</button></div></div>
+=======
+              const sentenceIsPlaying = singleSpeakingSentenceId === sentence.id && singleListeningState === "playing";
+              const sentenceIsActive = singleSpeakingSentenceId === sentence.id && singleListeningState !== "idle";
+              return <div className={`sentence-pair ${difficultSentences.includes(sentence.id) ? "difficult" : ""} ${speakingSentenceId === sentence.id || sentenceIsActive ? "listening" : ""}`} data-sentence={sentence.id} key={sentence.id}>
+                <div className="sentence-number">{sentence.marked && <span className="source-mark" title="원본 밑줄 표시">★</span>}{sentence.id}</div>
+                <div className="sentence-copy"><p className="english"><HighlightedEnglish text={sentence.english} words={sentenceWords} onOpen={openSavedWord} transientWord={lookupHighlight?.sentenceId === sentence.id ? lookupHighlight.word : undefined} transientStatus={lookupHighlight?.sentenceId === sentence.id ? lookupHighlight.status : undefined} onTransientDismiss={() => setLookupHighlight(null)} /></p><p className="korean">{sentence.korean}</p><div className="sentence-actions"><button className={sentenceIsActive ? "sentence-listen-active" : ""} aria-pressed={sentenceIsActive} onClick={() => speakSentence(sentence.id, sentence.english)}><PlaybackIcon name={sentenceIsPlaying ? "pause" : "play"} />{sentenceIsPlaying ? "일시정지" : sentenceIsActive ? "계속 듣기" : "듣기"}</button><button onClick={() => toggleDifficultSentence(sentence.id)}>{difficultSentences.includes(sentence.id) ? "⚑ 어려운 문장 해제" : "⚐ 어려운 문장 체크"}</button></div></div>
+>>>>>>> 9d6fce52c3a2276842e97472a9abda1ab4984a91
               </div>;
             })}
           </section>)}
         </article>
+<<<<<<< HEAD
         <aside className="insight-panel" onScroll={() => setSelected(null)}><span className="section-kicker">READING MAP</span><h3>본문 구조</h3><p>{doc.analysis.structure}</p><div className="structure-list">{studySections.map((group, index) => <div key={group.key}><b>{index + 1}</b><span>{group.section.label}<small>{group.section.role}</small></span></div>)}</div></aside>
+=======
+        <aside className="insight-panel" onScroll={() => setSelected(null)}><span className="section-kicker">READING MAP</span><h3>본문 구조</h3><p>{doc.analysis.structure}</p><div className="structure-list">{doc.analysis.sections.map((section) => <div key={section.id}><b>{section.id}</b><span>{section.label}<small>{section.role}</small></span></div>)}</div></aside>
+>>>>>>> 9d6fce52c3a2276842e97472a9abda1ab4984a91
       </div>
       {showFloatingListeningControls && singleSpeakingSentenceIndex === null && <ListeningControls
         state={listeningState}
