@@ -69,6 +69,7 @@ export default function App({ supabaseUrl, supabasePublishableKey }: AppProps = 
   if (workspace.loading) {
     return <div className="loading-screen"><Logo /><p>내 학습실을 여는 중…</p><SupportChatbot context={{ view: "loading", configured, signedIn: false }} /></div>;
   }
+<<<<<<< HEAD
   if (configured && !workspace.session) return (
     <div className="auth-with-footer">
       {infoPage ? <LegalPage page={infoPage} onBack={() => setInfoPage(null)} /> : <AuthScreen />}
@@ -76,6 +77,11 @@ export default function App({ supabaseUrl, supabasePublishableKey }: AppProps = 
       <SiteFooter onOpen={setInfoPage} />
     </div>
   );
+=======
+  if (configured && !workspace.session) return infoPage
+    ? <div className="auth-with-footer"><LegalPage page={infoPage} onBack={() => setInfoPage(null)} /><SiteFooter onOpen={setInfoPage} /></div>
+    : <div className="auth-with-footer"><AuthScreen /><SupportChatbot context={{ view: "auth", configured, signedIn: false }} /><SiteFooter onOpen={setInfoPage} /></div>;
+>>>>>>> fe4d3eec85cfa5d310288785ae9ff90b1744039f
 
   return (
     <div className="app-shell">
@@ -186,6 +192,7 @@ export default function App({ supabaseUrl, supabasePublishableKey }: AppProps = 
         onView={(view) => { setInfoPage(null); workspace.setView(view); }}
       />}
 
+<<<<<<< HEAD
       <SupportChatbot context={{
         view: infoPage ? "legal" : workspace.view,
         configured,
@@ -195,6 +202,15 @@ export default function App({ supabaseUrl, supabasePublishableKey }: AppProps = 
         sentenceCount: workspace.current?.analysis.sentences.length,
         documentSentences: workspace.current?.analysis.sentences,
       }} />
+=======
+      {!infoPage && <SupportChatbot context={{
+        view: workspace.view,
+        configured,
+        signedIn: Boolean(workspace.session),
+        documentTitle: workspace.current?.title,
+        sentenceCount: workspace.current?.analysis.sentences.length,
+      }} />}
+>>>>>>> fe4d3eec85cfa5d310288785ae9ff90b1744039f
 
       <SiteFooter onOpen={setInfoPage} />
     </div>

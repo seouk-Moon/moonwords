@@ -31,6 +31,10 @@ test("renders development preview metadata", async () => {
   );
   const html = await response.text();
   assert.match(html, developmentPreviewMeta);
+<<<<<<< HEAD
   assert.match(html, /Moonwords 챗봇/);
+=======
+  assert.match(html, /문제 해결 챗봇/);
+>>>>>>> fe4d3eec85cfa5d310288785ae9ff90b1744039f
   assert.match(html, /도움말/);
 });

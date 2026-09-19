@@ -6,8 +6,11 @@ const cors = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
+<<<<<<< HEAD
 const cefrLevels = ["A1", "A2", "B1", "B2", "C1", "C2"];
 
+=======
+>>>>>>> fe4d3eec85cfa5d310288785ae9ff90b1744039f
 const readingQuestionSchema = {
   type: "object",
   required: ["question", "options", "answer", "explanation"],
@@ -261,6 +264,7 @@ const validateSourceText = (text: unknown) => {
   return "";
 };
 
+<<<<<<< HEAD
 const normalizeGeneratedLevel = (value: unknown) => {
   const source = String(value ?? "").trim();
   const direct = source.toUpperCase().match(/(?:^|\b)(A1|A2|B1|B2|C1|C2)(?:\b|$)/)?.[1];
@@ -275,6 +279,9 @@ const normalizeGeneratedLevel = (value: unknown) => {
   return "B1";
 };
 
+=======
+<<<<<<< HEAD
+>>>>>>> fe4d3eec85cfa5d310288785ae9ff90b1744039f
 type GeneratedSection = {
   id: number;
   label: string;
@@ -340,9 +347,17 @@ const normalizeGeneratedAnalysis = (analysis: GeneratedAnalysis) => {
     };
   });
 
+<<<<<<< HEAD
   return { ...analysis, level: normalizeGeneratedLevel(analysis.level), sections, sentences };
 };
 
+=======
+  return { ...analysis, sections, sentences };
+};
+
+=======
+>>>>>>> 9d6fce52c3a2276842e97472a9abda1ab4984a91
+>>>>>>> fe4d3eec85cfa5d310288785ae9ff90b1744039f
 Deno.serve(async (request: Request) => {
   if (request.method === "OPTIONS") return new Response("ok", { headers: cors });
   try {
@@ -377,6 +392,7 @@ Deno.serve(async (request: Request) => {
       return Response.json(result, { headers: { ...cors, "Content-Type": "application/json" } });
     }
 
+<<<<<<< HEAD
     if (body.action === "study-chat") {
       const validationError = validateSourceText(body.text);
       if (validationError) return Response.json({ error: validationError }, { status: 400, headers: cors });
@@ -405,10 +421,38 @@ Deno.serve(async (request: Request) => {
       );
       return Response.json(
         { answer: result.answer },
+=======
+    if (body.action === "generate-questions") {
+      const validationError = validateSourceText(body.text);
+      if (validationError) return Response.json({ error: validationError }, { status: 400, headers: cors });
+
+      const questionCount = requestedQuestionCount(body.questionCount);
+      const existingQuestions = Array.isArray(body.existingQuestions)
+        ? body.existingQuestions.filter((question: unknown) => typeof question === "string").slice(0, 100)
+        : [];
+      const result = await callGemini(
+        `제목: ${body.title || "제목 없음"}\n\n아래 영어 본문만 바탕으로 한국 학습자용 내용 이해 객관식 문제를 정확히 ${questionCount}개 새로 만드세요.\n- options는 항상 4개이며 answer는 0부터 시작하는 정답 index입니다.\n- 세부 사실, 핵심 주장, 추론, 글의 흐름을 고르게 확인하세요.\n- 정답과 오답 선택지는 서로 명확히 구분되도록 작성하세요.\n- 기존 문제와 같은 질문이나 사실상 같은 질문은 만들지 마세요.\n\n기존 문제:\n${existingQuestions.length ? existingQuestions.map((question: string) => `- ${question}`).join("\n") : "없음"}\n\n본문:\n${body.text}`,
+        {
+          type: "object",
+          required: ["questions"],
+          properties: {
+            questions: {
+              type: "array",
+              minItems: questionCount,
+              maxItems: questionCount,
+              items: readingQuestionSchema,
+            },
+          },
+        },
+      );
+      return Response.json(
+        { questions: result.questions },
+>>>>>>> fe4d3eec85cfa5d310288785ae9ff90b1744039f
         { headers: { ...cors, "Content-Type": "application/json" } },
       );
     }
 
+<<<<<<< HEAD
     if (body.action === "generate-questions") {
       const validationError = validateSourceText(body.text);
       if (validationError) return Response.json({ error: validationError }, { status: 400, headers: cors });
@@ -441,12 +485,26 @@ Deno.serve(async (request: Request) => {
     if (body.action !== "analyze") {
       return Response.json({ error: "지원하지 않는 요청입니다." }, { status: 400, headers: cors });
     }
+=======
+    if (body.action !== "analyze") {
+      return Response.json({ error: "지원하지 않는 요청입니다." }, { status: 400, headers: cors });
+    }
+>>>>>>> fe4d3eec85cfa5d310288785ae9ff90b1744039f
     const validationError = validateSourceText(body.text);
     if (validationError) return Response.json({ error: validationError }, { status: 400, headers: cors });
 
     const questionCount = requestedQuestionCount(body.questionCount);
+<<<<<<< HEAD
     const prompt = `제목: ${body.title || "제목 없음"}\n\n아래 영어 본문을 한국 학습자용 학습 데이터로 분석하세요. 번역과 어휘 분석을 반드시 같은 작업에서 함께 수행하세요.\n- level은 반드시 CEFR A1, A2, B1, B2, C1, C2 중 하나만 사용합니다.\n- 원문 전체를 누락 없이 자연스러운 문장 단위로 분리하고 1부터 연속 ID를 부여합니다.\n- english에는 원문 문장을 보존하고 korean에는 그 문장만 자연스럽게 번역합니다.\n- 의미 단락을 3~8개 section으로 묶고 각 sentence의 paragraph에 section id를 넣습니다.\n- 각 문장을 번역할 때 한국 학습자가 선택할 가능성이 높은 어려운 단어, 내용어, 구동사와 숙어를 보통 8~10개 keywords로 함께 만듭니다. 짧은 문장은 필요한 만큼만 만듭니다.\n- keyword.word는 원문에 실제 나온 형태와 철자를 그대로 쓰고, meaning은 해당 문장에서 사용된 뜻만 간결한 한국어로 씁니다. 관사, 대명사, be/do/have 같은 매우 기초적인 기능어는 제외합니다.\n- topic, 한국어 summary, 글의 전개를 보여주는 한국어 structure를 작성합니다.\n- 내용 이해 객관식 문제를 ${questionCount}개 만들고 options는 4개, answer는 0부터 시작하는 정답 index입니다.\n\n본문:\n${body.text}`;
     const analysis = normalizeGeneratedAnalysis(await callGemini(prompt, analysisSchema));
+=======
+    const prompt = `제목: ${body.title || "제목 없음"}\n\n아래 영어 본문을 한국 학습자용 학습 데이터로 분석하세요. 번역과 어휘 분석을 반드시 같은 작업에서 함께 수행하세요.\n- 원문 전체를 누락 없이 자연스러운 문장 단위로 분리하고 1부터 연속 ID를 부여합니다.\n- english에는 원문 문장을 보존하고 korean에는 그 문장만 자연스럽게 번역합니다.\n- 의미 단락을 3~8개 section으로 묶고 각 sentence의 paragraph에 section id를 넣습니다.\n- 각 문장을 번역할 때 한국 학습자가 선택할 가능성이 높은 어려운 단어, 내용어, 구동사와 숙어를 보통 8~10개 keywords로 함께 만듭니다. 짧은 문장은 필요한 만큼만 만듭니다.\n- keyword.word는 원문에 실제 나온 형태와 철자를 그대로 쓰고, meaning은 해당 문장에서 사용된 뜻만 간결한 한국어로 씁니다. 관사, 대명사, be/do/have 같은 매우 기초적인 기능어는 제외합니다.\n- topic, 한국어 summary, 글의 전개를 보여주는 한국어 structure를 작성합니다.\n- 내용 이해 객관식 문제를 ${questionCount}개 만들고 options는 4개, answer는 0부터 시작하는 정답 index입니다.\n\n본문:\n${body.text}`;
+<<<<<<< HEAD
+    const analysis = normalizeGeneratedAnalysis(await callGemini(prompt, analysisSchema));
+=======
+    const analysis = await callGemini(prompt, analysisSchema);
+>>>>>>> 9d6fce52c3a2276842e97472a9abda1ab4984a91
+>>>>>>> fe4d3eec85cfa5d310288785ae9ff90b1744039f
     return Response.json({ analysis }, { headers: { ...cors, "Content-Type": "application/json" } });
   } catch (error) {
     const status = error instanceof GeminiUpstreamError ? error.status : 500;

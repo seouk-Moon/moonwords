@@ -31,11 +31,14 @@ const sortFolders = (items: DocumentFolder[]) => [...items].sort((first, second)
 const isFolderOrderMigrationError = (message: string) =>
   /reorder_document_folders|sort_order|schema cache|PGRST202/i.test(message);
 
+<<<<<<< HEAD
 const normalizeDocumentLevel = (document: StudyDocument): StudyDocument => ({
   ...document,
   analysis: { ...document.analysis, level: normalizeCefrLevel(document.analysis.level) },
 });
 
+=======
+>>>>>>> fe4d3eec85cfa5d310288785ae9ff90b1744039f
 export function useStudyWorkspace(configured: boolean) {
   const [session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState(configured);
@@ -261,6 +264,31 @@ export function useStudyWorkspace(configured: boolean) {
     }
   };
 
+  const renameDocument = async (documentId: string, title: string) => {
+    const trimmed = title.trim();
+    if (!trimmed) throw new Error("본문 제목을 입력해 주세요.");
+    if (trimmed.length > 160) throw new Error("본문 제목은 160자 이하로 입력해 주세요.");
+
+    const document = documents.find((item) => item.id === documentId);
+    if (!document) throw new Error("변경할 본문을 찾지 못했습니다.");
+    if (document.title === trimmed) return;
+
+    const updatedAt = new Date().toISOString();
+    if (supabase && session) {
+      const result = await supabase
+        .from("documents")
+        .update({ title: trimmed, updated_at: updatedAt })
+        .eq("id", documentId);
+      if (result.error) throw new Error(result.error.message);
+    }
+
+    const update = (item: StudyDocument) => item.id === documentId
+      ? { ...item, title: trimmed, updated_at: updatedAt }
+      : item;
+    setDocuments((items) => items.map(update));
+    setCurrent((item) => item ? update(item) : item);
+  };
+
   const createFolder = async (name: string) => {
     const trimmed = name.trim();
     if (!trimmed) throw new Error("폴더 이름을 입력해 주세요.");
@@ -376,7 +404,10 @@ export function useStudyWorkspace(configured: boolean) {
     addDocumentAndOpen,
     applyUpdatedDocument,
     renameDocument,
+<<<<<<< HEAD
     deleteDocument,
+=======
+>>>>>>> fe4d3eec85cfa5d310288785ae9ff90b1744039f
     createFolder,
     renameFolder,
     deleteFolder,

@@ -3,7 +3,10 @@ import type {
   AnalysisSentence,
   DocumentAnalysis,
 } from "../types";
+<<<<<<< HEAD
 import { normalizeCefrLevel } from "./cefr";
+=======
+>>>>>>> fe4d3eec85cfa5d310288785ae9ff90b1744039f
 
 export type StudySentenceEntry = {
   sentence: AnalysisSentence;
@@ -109,5 +112,9 @@ export function normalizeNewDocumentAnalysis(analysis: DocumentAnalysis): Docume
     };
   });
 
+<<<<<<< HEAD
   return { ...analysis, level: normalizeCefrLevel(analysis.level), sections, sentences };
+=======
+  return { ...analysis, sections, sentences };
+>>>>>>> fe4d3eec85cfa5d310288785ae9ff90b1744039f
 }
