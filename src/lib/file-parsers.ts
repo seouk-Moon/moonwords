@@ -1,9 +1,30 @@
-const MAX_TEXT_LENGTH = 120_000;
+export const MAX_DOCUMENT_TEXT_LENGTH = 120_000;
+
+export type DocumentExtractionProgress = {
+  stage: "reading" | "ocr-loading" | "ocr-rendering" | "ocr-recognizing";
+  currentPage: number;
+  totalPages: number;
+  progress: number;
+};
+
+export type DocumentExtractionOptions = {
+  /** 텍스트 레이어 결과와 관계없이 스캔 OCR로 다시 읽습니다. */
+  forceOcr?: boolean;
+  onProgress?: (progress: DocumentExtractionProgress) => void;
+};
 
 export type ExtractedDocumentContent = {
   text: string;
   /** 원본에서 밑줄 친 문장/문장 조각. AI 분석 결과의 문장과 매칭해 ★ 표시하는 데 사용합니다. */
   markedFragments: string[];
+  /** PDF일 때만 제공되는 전체 페이지 수 */
+  pageCount?: number;
+  /** 이미지형 PDF를 브라우저 OCR로 읽었는지 여부 */
+  ocrUsed?: boolean;
+  /** 브라우저 보호를 위한 OCR 페이지 제한에 도달했는지 여부 */
+  ocrPageLimitReached?: boolean;
+  /** 실제 OCR로 처리한 페이지 수 */
+  ocrPagesProcessed?: number;
 };
 
 const cleanText = (value: string) =>
@@ -12,7 +33,7 @@ const cleanText = (value: string) =>
     .replace(/[ \t]+\n/g, "\n")
     .replace(/\n{3,}/g, "\n\n")
     .trim()
-    .slice(0, MAX_TEXT_LENGTH);
+    .slice(0, MAX_DOCUMENT_TEXT_LENGTH);
 
 const normalizeForMatch = (value: string) =>
   value
@@ -40,7 +61,37 @@ const surroundingSentenceForMark = (blockText: string, markedText: string) => {
   return sentence || blockText.trim();
 };
 
-const parsePdf = async (file: File): Promise<ExtractedDocumentContent> => {
+const readableCharacterCount = (value: string) => value.match(/[A-Za-z0-9]/g)?.length ?? 0;
+
+const needsOcrFallback = (value: string, pages: string[]) => {
+  const compact = value.replace(/\s/g, "");
+  const readableCharacters = readableCharacterCount(compact);
+  const pagesWithReadableText = pages.filter((page) => readableCharacterCount(page) >= 30).length;
+  const tooManyImageOnlyPages = pages.length > 1 && pagesWithReadableText < Math.ceil(pages.length * .5);
+  return compact.length < 40
+    || readableCharacters < 30
+    || readableCharacters / Math.max(compact.length, 1) < .35
+    || tooManyImageOnlyPages;
+};
+
+type UnderlineAnnotation = {
+  subtype: "Underline";
+  rect: [number, number, number, number];
+};
+
+const isUnderlineAnnotation = (value: unknown): value is UnderlineAnnotation => {
+  if (!value || typeof value !== "object") return false;
+  const candidate = value as { subtype?: unknown; rect?: unknown };
+  return candidate.subtype === "Underline"
+    && Array.isArray(candidate.rect)
+    && candidate.rect.length >= 4
+    && candidate.rect.slice(0, 4).every((coordinate) => typeof coordinate === "number");
+};
+
+const parsePdf = async (
+  file: File,
+  options: DocumentExtractionOptions,
+): Promise<ExtractedDocumentContent> => {
   const [pdfjs, pdfWorker] = await Promise.all([
     import("pdfjs-dist/legacy/build/pdf.mjs"),
     import("pdfjs-dist/legacy/build/pdf.worker.min.mjs?url"),
@@ -52,21 +103,33 @@ const parsePdf = async (file: File): Promise<ExtractedDocumentContent> => {
   const markedFragments: string[] = [];
 
   for (let pageNumber = 1; pageNumber <= document.numPages; pageNumber += 1) {
+    options.onProgress?.({
+      stage: "reading",
+      currentPage: pageNumber,
+      totalPages: document.numPages,
+      progress: pageNumber / document.numPages,
+    });
     const page = await document.getPage(pageNumber);
     const content = await page.getTextContent();
-    const textItems = content.items.filter((item) => "str" in item) as Array<{ str: string; transform?: number[]; width?: number; height?: number }>;
-    pages.push(textItems.map((item) => item.str).join(" "));
+    const textItems = content.items.filter((item) => "str" in item) as Array<{
+      str: string;
+      hasEOL?: boolean;
+      transform?: number[];
+      width?: number;
+      height?: number;
+    }>;
+    pages.push(textItems.map((item) => `${item.str}${item.hasEOL ? "\n" : " "}`).join("").trim());
 
     // PDF.js exposes real underline annotations. When present, match the annotation rectangle
     // to nearby text items and keep the whole visual line as context. Decorative drawn lines
     // are not reliably distinguishable from other PDF graphics, so those remain unchanged.
     try {
-      const annotations = await page.getAnnotations({ intent: "display" });
-      const underlineAnnotations = annotations.filter((annotation: any) => annotation?.subtype === "Underline" && Array.isArray(annotation.rect));
-      for (const annotation of underlineAnnotations as any[]) {
-        const [x1, y1, x2, y2] = annotation.rect as [number, number, number, number];
-        const underlinedItems = textItems.filter((item: any) => {
-          const transform = item.transform as number[] | undefined;
+      const annotations: unknown[] = await page.getAnnotations({ intent: "display" });
+      const underlineAnnotations = annotations.filter(isUnderlineAnnotation);
+      for (const annotation of underlineAnnotations) {
+        const [x1, y1, x2, y2] = annotation.rect;
+        const underlinedItems = textItems.filter((item) => {
+          const transform = item.transform;
           if (!transform) return false;
           const x = transform[4] ?? 0;
           const y = transform[5] ?? 0;
@@ -77,9 +140,9 @@ const parsePdf = async (file: File): Promise<ExtractedDocumentContent> => {
           return horizontalOverlap && verticalOverlap;
         });
         if (!underlinedItems.length) continue;
-        const referenceY = Number((underlinedItems[0] as any).transform?.[5] ?? 0);
+        const referenceY = Number(underlinedItems[0].transform?.[5] ?? 0);
         const lineText = textItems
-          .filter((item: any) => Math.abs(Number(item.transform?.[5] ?? 0) - referenceY) <= 4)
+          .filter((item) => Math.abs(Number(item.transform?.[5] ?? 0) - referenceY) <= 4)
           .map((item) => item.str)
           .join(" ")
           .trim();
@@ -90,7 +153,21 @@ const parsePdf = async (file: File): Promise<ExtractedDocumentContent> => {
     }
   }
 
-  return { text: pages.join("\n\n"), markedFragments };
+  const embeddedText = pages.join("\n\n");
+  if (options.forceOcr || needsOcrFallback(embeddedText, pages)) {
+    const { recognizePdfWithOcr } = await import("../pdf-extractor/ocr");
+    const ocr = await recognizePdfWithOcr(document, options.onProgress);
+    return {
+      text: ocr.text,
+      markedFragments: [],
+      pageCount: document.numPages,
+      ocrUsed: true,
+      ocrPageLimitReached: ocr.pageLimitReached,
+      ocrPagesProcessed: ocr.pagesProcessed,
+    };
+  }
+
+  return { text: embeddedText, markedFragments, pageCount: document.numPages, ocrUsed: false };
 };
 
 const parseDocx = async (file: File): Promise<ExtractedDocumentContent> => {
@@ -140,12 +217,15 @@ const parseTextLike = async (file: File): Promise<ExtractedDocumentContent> => {
   return { text: value.replace(/<\/?u>/gi, ""), markedFragments };
 };
 
-export const extractDocumentFromFile = async (file: File): Promise<ExtractedDocumentContent> => {
+export const extractDocumentFromFile = async (
+  file: File,
+  options: DocumentExtractionOptions = {},
+): Promise<ExtractedDocumentContent> => {
   const extension = file.name.split(".").pop()?.toLowerCase();
   let result: ExtractedDocumentContent;
 
   if (file.type === "application/pdf" || extension === "pdf") {
-    result = await parsePdf(file);
+    result = await parsePdf(file, options);
   } else if (
     file.type === "application/vnd.openxmlformats-officedocument.wordprocessingml.document" ||
     extension === "docx"
@@ -167,6 +247,10 @@ export const extractDocumentFromFile = async (file: File): Promise<ExtractedDocu
   return {
     text: cleaned,
     markedFragments: [...new Set(result.markedFragments.map(cleanText).filter(Boolean))],
+    ...(result.pageCount ? { pageCount: result.pageCount } : {}),
+    ...(typeof result.ocrUsed === "boolean" ? { ocrUsed: result.ocrUsed } : {}),
+    ...(result.ocrPageLimitReached ? { ocrPageLimitReached: true } : {}),
+    ...(result.ocrPagesProcessed ? { ocrPagesProcessed: result.ocrPagesProcessed } : {}),
   };
 };
 

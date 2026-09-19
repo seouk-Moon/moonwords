@@ -19,7 +19,7 @@ export const demoDocument: StudyDocument = {
   source_file_path: null,
   original_text: sentences.map((sentence) => sentence.english).join("\n\n"),
   analysis: {
-    level: "Intermediate",
+    level: "B1",
     topic: "Space & Science",
     summary:
       "우연한 달 충돌은 작은 과학적 단서를 남겼고, 동시에 미래 달 탐사를 위한 우주 쓰레기 관리의 필요성을 드러냈다.",

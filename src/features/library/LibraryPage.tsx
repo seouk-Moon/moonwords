@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { formatCefrLevel } from "../../lib/cefr";
 import type { DocumentFolder, StudyDocument } from "../../types";
 
 const ALL_FOLDER = "__all__";
@@ -12,7 +13,9 @@ type Props = {
   onCreateFolder: (name: string) => Promise<DocumentFolder>;
   onRenameFolder: (folderId: string, name: string) => Promise<void>;
   onDeleteFolder: (folderId: string) => Promise<void>;
+  onDeleteDocument: (documentId: string) => Promise<void>;
   onMoveDocument: (documentId: string, folderId: string | null) => Promise<void>;
+  onMoveFolder: (folderId: string, direction: -1 | 1) => Promise<void>;
 };
 
 const formatDate = (value: string) => new Date(value).toLocaleDateString("ko-KR", {
@@ -29,10 +32,15 @@ export function LibraryPage({
   onCreateFolder,
   onRenameFolder,
   onDeleteFolder,
+  onDeleteDocument,
   onMoveDocument,
+  onMoveFolder,
 }: Props) {
   const [selectedFolderId, setSelectedFolderId] = useState<string>(ALL_FOLDER);
   const [folderError, setFolderError] = useState("");
+  const [deleteCandidate, setDeleteCandidate] = useState<StudyDocument | null>(null);
+  const [deletingDocument, setDeletingDocument] = useState(false);
+  const [documentError, setDocumentError] = useState("");
 
   const filteredDocuments = useMemo(() => {
     if (selectedFolderId === ALL_FOLDER) return documents;
@@ -42,6 +50,7 @@ export function LibraryPage({
 
   const recent = filteredDocuments[0];
   const selectedFolder = folders.find((folder) => folder.id === selectedFolderId);
+  const selectedFolderIndex = selectedFolder ? folders.findIndex((folder) => folder.id === selectedFolder.id) : -1;
   const sectionTitle = selectedFolder?.name ?? (selectedFolderId === UNFILED_FOLDER ? "미분류" : "내 본문");
 
   const createFolder = async () => {
@@ -80,7 +89,31 @@ export function LibraryPage({
     }
   };
 
+  const moveSelectedFolder = async (direction: -1 | 1) => {
+    if (!selectedFolder) return;
+    setFolderError("");
+    try {
+      await onMoveFolder(selectedFolder.id, direction);
+    } catch (error) {
+      setFolderError(error instanceof Error ? error.message : "폴더 순서를 바꾸지 못했습니다.");
+    }
+  };
+
   const defaultUploadFolder = selectedFolder ? selectedFolder.id : null;
+
+  const confirmDeleteDocument = async () => {
+    if (!deleteCandidate || deletingDocument) return;
+    setDeletingDocument(true);
+    setDocumentError("");
+    try {
+      await onDeleteDocument(deleteCandidate.id);
+      setDeleteCandidate(null);
+    } catch (error) {
+      setDocumentError(error instanceof Error ? error.message : "본문을 삭제하지 못했습니다.");
+    } finally {
+      setDeletingDocument(false);
+    }
+  };
 
   return (
     <main className="library-page modern-library">
@@ -109,6 +142,8 @@ export function LibraryPage({
           ))}
         </div>
         <div className="folder-actions">
+          {selectedFolder && <button disabled={selectedFolderIndex <= 0} onClick={() => void moveSelectedFolder(-1)} aria-label={`${selectedFolder.name} 폴더를 앞으로 이동`}>← 앞으로</button>}
+          {selectedFolder && <button disabled={selectedFolderIndex < 0 || selectedFolderIndex >= folders.length - 1} onClick={() => void moveSelectedFolder(1)} aria-label={`${selectedFolder.name} 폴더를 뒤로 이동`}>뒤로 →</button>}
           {selectedFolder && <button onClick={renameSelectedFolder}>이름 변경</button>}
           {selectedFolder && <button className="danger" onClick={deleteSelectedFolder}>폴더 삭제</button>}
           <button className="create-folder" onClick={createFolder}>＋ 새 폴더</button>
@@ -160,7 +195,7 @@ export function LibraryPage({
                 <p>{doc.analysis.summary}</p>
               </button>
               <footer>
-                <span>{doc.analysis.sentences.length} 문장 · {doc.analysis.level || "Reading"}</span>
+                <span>{doc.analysis.sentences.length} 문장 · {formatCefrLevel(doc.analysis.level)}</span>
                 <label className="folder-select-label" onClick={(event) => event.stopPropagation()}>
                   <span>폴더</span>
                   <select
@@ -172,6 +207,15 @@ export function LibraryPage({
                     {folders.map((folder) => <option key={folder.id} value={folder.id}>{folder.name}</option>)}
                   </select>
                 </label>
+                <button
+                  type="button"
+                  className="document-delete-button"
+                  onClick={() => { setDocumentError(""); setDeleteCandidate(doc); }}
+                  aria-label={`${doc.title} 본문 삭제`}
+                >
+                  <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M9 7V4h6v3m-8 0 1 13h8l1-13M10 11v5m4-5v5" /></svg>
+                  삭제
+                </button>
               </footer>
             </article>
           ))}
@@ -184,6 +228,25 @@ export function LibraryPage({
           </div>
         )}
       </section>
+
+      {deleteCandidate && (
+        <div className="document-delete-overlay" role="presentation" onMouseDown={() => { if (!deletingDocument) setDeleteCandidate(null); }}>
+          <section className="document-delete-dialog" role="alertdialog" aria-modal="true" aria-labelledby="document-delete-title" onMouseDown={(event) => event.stopPropagation()}>
+            <span className="document-delete-icon" aria-hidden="true">!</span>
+            <div>
+              <span className="section-kicker">DELETE READING</span>
+              <h2 id="document-delete-title">이 본문을 삭제할까요?</h2>
+              <strong>“{deleteCandidate.title}”</strong>
+              <p>본문과 연결된 단어장, 진도, 퀴즈 기록 및 업로드 원본 파일이 함께 삭제됩니다. 이 작업은 되돌릴 수 없습니다.</p>
+              {documentError && <p className="document-delete-error" role="alert">{documentError}</p>}
+              <div className="document-delete-actions">
+                <button type="button" disabled={deletingDocument} onClick={() => setDeleteCandidate(null)}>취소</button>
+                <button type="button" className="confirm" disabled={deletingDocument} onClick={() => { void confirmDeleteDocument(); }}>{deletingDocument ? "삭제 중…" : "본문 영구 삭제"}</button>
+              </div>
+            </div>
+          </section>
+        </div>
+      )}
     </main>
   );
 }

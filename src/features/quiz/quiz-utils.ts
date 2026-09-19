@@ -1,6 +1,9 @@
 import type { ReadingQuestion, StudyDocument, StudyProgress, VocabularyItem } from "../../types";
 import { escapeRegExp, shuffle } from "../../lib/app-utils";
 
+export const MAX_COMPREHENSION_GENERATION_COUNT = 10;
+export const MAX_CLOZE_GENERATION_COUNT = 20;
+
 export const normalizeQuestionText = (value: string) => value.replace(/\s+/g, " ").trim().toLowerCase();
 
 export const mergeUniqueQuestions = (existing: ReadingQuestion[], incoming: ReadingQuestion[]) => {

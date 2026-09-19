@@ -18,15 +18,19 @@ Gemini 키는 Edge Function secret으로만 보관합니다. GitHub 변수에는
 2. SQL Editor에서 `supabase/migrations/202608200001_initial_schema.sql`을 실행합니다.
 3. Authentication → Providers에서 Email을 켜고, Confirm email을 활성화합니다.
 4. Authentication → URL Configuration에 GitHub Pages 주소를 Site URL과 Redirect URLs로 등록합니다.
-5. Supabase CLI로 로그인한 뒤 함수를 배포하고 secret을 등록합니다.
+5. Supabase CLI로 로그인한 뒤 migration, 함수와 secret을 반영합니다.
 
 ```bash
 npx supabase login
 npx supabase link --project-ref YOUR_PROJECT_REF
+npx supabase db push
 npx supabase secrets set GEMINI_API_KEY=YOUR_GEMINI_API_KEY
-npx supabase secrets set GEMINI_MODEL=gemini-3.7-flash
+npx supabase secrets set GEMINI_MODEL=gemini-3.8-flash
+npx supabase secrets set GEMINI_FALLBACK_MODELS=gemini-3.7-flash,gemini-3.5-flash-lite
 npx supabase functions deploy process-document
 ```
+
+이미 운영 중인 프로젝트라면 최소한 `supabase/migrations/202609190001_folder_order.sql`을 SQL Editor에서 한 번 실행해야 폴더 순서가 기기 간에 저장됩니다. Gemini 호출은 Edge Function 안에서 일시적인 429/503/5xx 오류를 지수 백오프로 재시도하고, 계속 실패하면 설정된 대체 모델을 순서대로 사용합니다. 추가 본문 이해 문제는 전체 본문 분석을 다시 만들지 않고 문제만 생성해 응답 시간과 오류 가능성을 줄입니다.
 
 ## 2. 로컬 실행
 
@@ -42,6 +46,19 @@ GitHub Pages용 정적 빌드 검증:
 ```bash
 npm run build:pages
 ```
+
+GitHub Pages 빌드에는 서로 분리된 두 페이지가 함께 생성됩니다.
+
+- `index.html`: 기존 Moonwords 영어 학습 앱
+- `pdf-extractor.html`: 로그인 없이 브라우저에서 작동하는 PDF 텍스트 추출기
+
+PDF 추출기는 별도 Supabase 프로젝트·테이블·Edge Function을 사용하지 않습니다. 파일을 서버에 올리지 않고 브라우저에서 PDF.js로 읽으며, 글자 레이어가 없거나 깨진 스캔본은 Tesseract.js 영어 OCR로 자동 보완합니다. OCR은 저화질 인식률을 높이기 위해 페이지를 확대·회색조·대비 보정하고 앞 30페이지까지 처리합니다. `Moonwords로 보내기`를 선택했을 때만 같은 탭의 임시 저장 공간을 통해 기존 본문 입력 화면과 연결됩니다. 관련 코드는 `src/pdf-extractor/` 폴더에 분리되어 있습니다.
+
+앱 오른쪽 아래의 `도움말` 버튼은 모든 화면에서 열고 접을 수 있습니다. `문제 해결` 모드는 문장 수 불일치, PDF/OCR, Gemini 503, 제목·폴더, 퀴즈와 듣기 문제를 로컬에서 안내하므로 외부 API를 사용하지 않습니다. `본문 질문` 모드는 현재 열린 본문의 번호가 붙은 문장과 최근 대화만 Edge Function을 통해 Gemini에 보내 핵심 내용, 특정 문장, 표현과 주장에 대한 후속 질문에 답합니다.
+
+본문 학습 화면은 AI 응답의 문장 ID가 반복되거나 존재하지 않는 문단 ID가 포함되어도 원래 문장 배열을 기준으로 1부터 끝까지 연속 번호를 표시합니다. 기존 문서의 단어장·학습 기록 ID는 그대로 보존하고, 새 문서는 프런트엔드와 Edge Function 양쪽에서 ID와 문단 연결을 저장 전에 정규화합니다.
+
+본문 난이도는 국제 표준 CEFR `A1 · A2 · B1 · B2 · C1 · C2`만 사용합니다. 기존에 저장된 Beginner, Intermediate, Advanced 등의 값도 화면에서 가장 가까운 CEFR 단계로 자동 변환합니다. 내 본문 카드의 `삭제` 버튼은 확인 창을 거친 뒤 본문과 연결 데이터 및 Storage 원본을 정리하며, 별도 데이터베이스 migration은 필요하지 않습니다.
 
 Supabase 환경 변수가 없으면 원래 SpaceX 본문으로 기능을 살펴볼 수 있는 DEMO 모드가 열립니다. 실제 회원가입·클라우드 저장·새 본문 분석은 Supabase 연결 후 활성화됩니다.
 

@@ -1,4 +1,15 @@
 type ListeningState = "idle" | "playing" | "paused";
+type PlaybackIconName = "play" | "pause" | "stop";
+
+export function PlaybackIcon({ name }: { name: PlaybackIconName }) {
+  return (
+    <svg className="playback-icon" viewBox="0 0 20 20" aria-hidden="true" focusable="false">
+      {name === "play" && <path d="M6.5 4.4v11.2L15 10 6.5 4.4Z" fill="currentColor" />}
+      {name === "pause" && <><rect x="5" y="4.5" width="3.5" height="11" rx="1" fill="currentColor" /><rect x="11.5" y="4.5" width="3.5" height="11" rx="1" fill="currentColor" /></>}
+      {name === "stop" && <rect x="5" y="5" width="10" height="10" rx="1.5" fill="currentColor" />}
+    </svg>
+  );
+}
 
 type Props = {
   state: ListeningState;
@@ -22,10 +33,10 @@ export function ListeningControls({
   floating = false,
 }: Props) {
   const primaryLabel = state === "idle"
-    ? "▶ 전체 듣기"
+    ? "전체 듣기"
     : state === "paused"
-      ? "▶ 계속 듣기"
-      : "Ⅱ 일시정지";
+      ? "계속 듣기"
+      : "일시정지";
 
   const status = state === "idle"
     ? "영어 본문 연속 재생"
@@ -52,6 +63,7 @@ export function ListeningControls({
           onClick={onPrimary}
           aria-pressed={state !== "idle"}
         >
+          <PlaybackIcon name={state === "playing" ? "pause" : "play"} />
           {primaryLabel}
         </button>
         {floating && state !== "idle" && onSeekForward && (
@@ -59,7 +71,7 @@ export function ListeningControls({
             5초 ↷
           </button>
         )}
-        {state !== "idle" && <button type="button" onClick={onStop}>■ 정지</button>}
+        {state !== "idle" && <button type="button" onClick={onStop}><PlaybackIcon name="stop" />정지</button>}
         <span aria-live="polite">{status}</span>
       </div>
     </div>
