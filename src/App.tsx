@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { cloudConfigured, configureSupabase, supabase } from "./lib/supabase";
 import { AppHeader } from "./components/layout/AppHeader";
 import { MobileBottomNav } from "./components/layout/MobileBottomNav";
@@ -17,6 +17,11 @@ import { LegalPage } from "./features/legal/LegalPage";
 import { ProfilePage } from "./features/profile/ProfilePage";
 import { useStudyWorkspace } from "./hooks/useStudyWorkspace";
 import { useQuizGeneration } from "./hooks/useQuizGeneration";
+import {
+  clearPendingPdfTransfer,
+  readPendingPdfTransfer,
+  type PdfTextTransfer,
+} from "./pdf-extractor/transfer";
 
 type AppProps = {
   supabaseUrl?: string;
@@ -28,6 +33,7 @@ export default function App({ supabaseUrl, supabasePublishableKey }: AppProps = 
   const configured = cloudConfigured;
   const [uploadFolderId, setUploadFolderId] = useState<string | null>(null);
   const [infoPage, setInfoPage] = useState<InfoPage | null>(null);
+  const [pdfTransfer, setPdfTransfer] = useState<PdfTextTransfer | null>(null);
 
   const workspace = useStudyWorkspace(configured);
   const quizGeneration = useQuizGeneration({
@@ -39,6 +45,25 @@ export default function App({ supabaseUrl, supabasePublishableKey }: AppProps = 
     applyUpdatedDocument: workspace.applyUpdatedDocument,
     setView: workspace.setView,
   });
+  const workspaceLoading = workspace.loading;
+  const workspaceSession = workspace.session;
+  const setWorkspaceView = workspace.setView;
+
+  useEffect(() => {
+    const timeout = window.setTimeout(() => setPdfTransfer(readPendingPdfTransfer()), 0);
+    return () => window.clearTimeout(timeout);
+  }, []);
+
+  useEffect(() => {
+    if (!pdfTransfer || workspaceLoading || !workspaceSession) return;
+    const frame = window.requestAnimationFrame(() => {
+      setUploadFolderId(null);
+      setInfoPage(null);
+      setWorkspaceView("upload");
+      clearPendingPdfTransfer();
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [pdfTransfer, workspaceLoading, workspaceSession, setWorkspaceView]);
 
   if (workspace.loading) {
     return <div className="loading-screen"><Logo /><p>내 학습실을 여는 중…</p></div>;
@@ -77,26 +102,39 @@ export default function App({ supabaseUrl, supabasePublishableKey }: AppProps = 
           onRenameFolder={workspace.renameFolder}
           onDeleteFolder={workspace.deleteFolder}
           onMoveDocument={workspace.moveDocumentToFolder}
+          onMoveFolder={workspace.moveFolder}
           />
       )}
 
       {!infoPage && workspace.view === "upload" && workspace.session && (
         <UploadPanel
+          key={pdfTransfer ? `pdf-${pdfTransfer.createdAt}` : "manual-upload"}
           userId={workspace.session.user.id}
           folderId={uploadFolderId}
-          onCreated={workspace.addDocumentAndOpen}
-          onCancel={() => workspace.setView("library")}
+          initialTitle={pdfTransfer?.title}
+          initialText={pdfTransfer?.text}
+          importedFromPdfTool={Boolean(pdfTransfer)}
+          onCreated={(document) => {
+            setPdfTransfer(null);
+            workspace.addDocumentAndOpen(document);
+          }}
+          onCancel={() => {
+            setPdfTransfer(null);
+            workspace.setView("library");
+          }}
         />
       )}
 
       {!infoPage && workspace.current && workspace.view === "study" && (
         <StudyView
+          key={workspace.current.id}
           doc={workspace.current}
           words={workspace.words}
           progress={workspace.progress}
           onSaveWord={workspace.saveWord}
           onDeleteWord={workspace.deleteWord}
           onProgress={workspace.saveProgress}
+          onRenameDocument={workspace.renameDocument}
         />
       )}
 

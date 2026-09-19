@@ -19,6 +19,17 @@ const createDemoProgress = (): StudyProgress => ({
   last_studied_at: new Date().toISOString(),
 });
 
+const sortFolders = (items: DocumentFolder[]) => [...items].sort((first, second) => {
+  const firstOrder = Number.isFinite(first.sort_order) ? Number(first.sort_order) : Number.MAX_SAFE_INTEGER;
+  const secondOrder = Number.isFinite(second.sort_order) ? Number(second.sort_order) : Number.MAX_SAFE_INTEGER;
+  if (firstOrder !== secondOrder) return firstOrder - secondOrder;
+  const createdDifference = first.created_at.localeCompare(second.created_at);
+  return createdDifference || first.id.localeCompare(second.id);
+});
+
+const isFolderOrderMigrationError = (message: string) =>
+  /reorder_document_folders|sort_order|schema cache|PGRST202/i.test(message);
+
 export function useStudyWorkspace(configured: boolean) {
   const [session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState(configured);
@@ -53,7 +64,7 @@ export function useStudyWorkspace(configured: boolean) {
     ]).then(([documentResult, folderResult]) => {
       if (!documentResult.error) setDocuments(documentResult.data as StudyDocument[]);
       // Older deployments may not have the folder migration yet. Keep the rest of the app usable.
-      if (!folderResult.error) setFolders(folderResult.data as DocumentFolder[]);
+      if (!folderResult.error) setFolders(sortFolders(folderResult.data as DocumentFolder[]));
     });
   }, [session]);
 
@@ -184,6 +195,31 @@ export function useStudyWorkspace(configured: boolean) {
     setCurrent((item) => (item?.id === doc.id ? doc : item));
   };
 
+  const renameDocument = async (documentId: string, title: string) => {
+    const trimmed = title.trim();
+    if (!trimmed) throw new Error("본문 제목을 입력해 주세요.");
+    if (trimmed.length > 160) throw new Error("본문 제목은 160자 이하로 입력해 주세요.");
+
+    const document = documents.find((item) => item.id === documentId);
+    if (!document) throw new Error("변경할 본문을 찾지 못했습니다.");
+    if (document.title === trimmed) return;
+
+    const updatedAt = new Date().toISOString();
+    if (supabase && session) {
+      const result = await supabase
+        .from("documents")
+        .update({ title: trimmed, updated_at: updatedAt })
+        .eq("id", documentId);
+      if (result.error) throw new Error(result.error.message);
+    }
+
+    const update = (item: StudyDocument) => item.id === documentId
+      ? { ...item, title: trimmed, updated_at: updatedAt }
+      : item;
+    setDocuments((items) => items.map(update));
+    setCurrent((item) => item ? update(item) : item);
+  };
+
   const createFolder = async (name: string) => {
     const trimmed = name.trim();
     if (!trimmed) throw new Error("폴더 이름을 입력해 주세요.");
@@ -193,19 +229,32 @@ export function useStudyWorkspace(configured: boolean) {
 
     if (!supabase || !session) {
       const now = new Date().toISOString();
-      const folder: DocumentFolder = { id: uid(), user_id: "demo-user", name: trimmed, created_at: now, updated_at: now };
-      setFolders((items) => [...items, folder]);
+      const folder: DocumentFolder = { id: uid(), user_id: "demo-user", name: trimmed, sort_order: folders.length, created_at: now, updated_at: now };
+      setFolders((items) => sortFolders([...items, folder]));
       return folder;
     }
 
-    const result = await supabase
+    const nextSortOrder = folders.reduce(
+      (highest, folder) => Math.max(highest, Number.isFinite(folder.sort_order) ? Number(folder.sort_order) : -1),
+      -1,
+    ) + 1;
+    let result = await supabase
       .from("document_folders")
-      .insert({ user_id: session.user.id, name: trimmed })
+      .insert({ user_id: session.user.id, name: trimmed, sort_order: nextSortOrder })
       .select()
       .single();
+    // Keep folder creation compatible while an older database is waiting for
+    // the ordering migration. Reordering itself explains the required setup.
+    if (result.error && /sort_order|schema cache/i.test(result.error.message)) {
+      result = await supabase
+        .from("document_folders")
+        .insert({ user_id: session.user.id, name: trimmed })
+        .select()
+        .single();
+    }
     if (result.error) throw new Error(result.error.message.includes("document_folders") ? "폴더 기능 migration을 먼저 적용해 주세요." : result.error.message);
-    const folder = result.data as DocumentFolder;
-    setFolders((items) => [...items, folder]);
+    const folder = { ...(result.data as DocumentFolder), sort_order: (result.data as DocumentFolder).sort_order ?? nextSortOrder };
+    setFolders((items) => sortFolders([...items, folder]));
     return folder;
   };
 
@@ -239,6 +288,31 @@ export function useStudyWorkspace(configured: boolean) {
     }
   };
 
+  const moveFolder = async (folderId: string, direction: -1 | 1) => {
+    const currentIndex = folders.findIndex((folder) => folder.id === folderId);
+    const targetIndex = currentIndex + direction;
+    if (currentIndex < 0 || targetIndex < 0 || targetIndex >= folders.length) return;
+
+    const previous = folders;
+    const reordered = [...folders];
+    [reordered[currentIndex], reordered[targetIndex]] = [reordered[targetIndex], reordered[currentIndex]];
+    const updatedAt = new Date().toISOString();
+    const normalized = reordered.map((folder, index) => ({ ...folder, sort_order: index, updated_at: updatedAt }));
+    setFolders(normalized);
+
+    if (supabase && session) {
+      const result = await supabase.rpc("reorder_document_folders", {
+        ordered_folder_ids: normalized.map((folder) => folder.id),
+      });
+      if (result.error) {
+        setFolders(previous);
+        throw new Error(isFolderOrderMigrationError(result.error.message)
+          ? "폴더 순서 migration을 먼저 적용해 주세요."
+          : result.error.message);
+      }
+    }
+  };
+
   return {
     session,
     loading,
@@ -260,9 +334,11 @@ export function useStudyWorkspace(configured: boolean) {
     learningAnalytics: learning.snapshot,
     addDocumentAndOpen,
     applyUpdatedDocument,
+    renameDocument,
     createFolder,
     renameFolder,
     deleteFolder,
     moveDocumentToFolder,
+    moveFolder,
   };
 }

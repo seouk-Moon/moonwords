@@ -13,6 +13,7 @@ type Props = {
   onRenameFolder: (folderId: string, name: string) => Promise<void>;
   onDeleteFolder: (folderId: string) => Promise<void>;
   onMoveDocument: (documentId: string, folderId: string | null) => Promise<void>;
+  onMoveFolder: (folderId: string, direction: -1 | 1) => Promise<void>;
 };
 
 const formatDate = (value: string) => new Date(value).toLocaleDateString("ko-KR", {
@@ -30,6 +31,7 @@ export function LibraryPage({
   onRenameFolder,
   onDeleteFolder,
   onMoveDocument,
+  onMoveFolder,
 }: Props) {
   const [selectedFolderId, setSelectedFolderId] = useState<string>(ALL_FOLDER);
   const [folderError, setFolderError] = useState("");
@@ -42,6 +44,7 @@ export function LibraryPage({
 
   const recent = filteredDocuments[0];
   const selectedFolder = folders.find((folder) => folder.id === selectedFolderId);
+  const selectedFolderIndex = selectedFolder ? folders.findIndex((folder) => folder.id === selectedFolder.id) : -1;
   const sectionTitle = selectedFolder?.name ?? (selectedFolderId === UNFILED_FOLDER ? "미분류" : "내 본문");
 
   const createFolder = async () => {
@@ -80,6 +83,16 @@ export function LibraryPage({
     }
   };
 
+  const moveSelectedFolder = async (direction: -1 | 1) => {
+    if (!selectedFolder) return;
+    setFolderError("");
+    try {
+      await onMoveFolder(selectedFolder.id, direction);
+    } catch (error) {
+      setFolderError(error instanceof Error ? error.message : "폴더 순서를 바꾸지 못했습니다.");
+    }
+  };
+
   const defaultUploadFolder = selectedFolder ? selectedFolder.id : null;
 
   return (
@@ -109,6 +122,8 @@ export function LibraryPage({
           ))}
         </div>
         <div className="folder-actions">
+          {selectedFolder && <button disabled={selectedFolderIndex <= 0} onClick={() => void moveSelectedFolder(-1)} aria-label={`${selectedFolder.name} 폴더를 앞으로 이동`}>← 앞으로</button>}
+          {selectedFolder && <button disabled={selectedFolderIndex < 0 || selectedFolderIndex >= folders.length - 1} onClick={() => void moveSelectedFolder(1)} aria-label={`${selectedFolder.name} 폴더를 뒤로 이동`}>뒤로 →</button>}
           {selectedFolder && <button onClick={renameSelectedFolder}>이름 변경</button>}
           {selectedFolder && <button className="danger" onClick={deleteSelectedFolder}>폴더 삭제</button>}
           <button className="create-folder" onClick={createFolder}>＋ 새 폴더</button>
