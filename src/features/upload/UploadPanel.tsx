@@ -51,16 +51,16 @@ export function UploadPanel({
   const analyzeWithRetry = async (documentTitle: string, originalText: string) => {
     if (!supabase) throw new Error("Supabase 연결이 필요합니다.");
     let lastMessage = "AI 처리 요청에 실패했습니다.";
-    for (let attempt = 0; attempt < 4; attempt += 1) {
+    for (let attempt = 0; attempt < 2; attempt += 1) {
       const response = await supabase.functions.invoke("process-document", {
         body: { action: "analyze", title: documentTitle, text: originalText },
       });
       if (!response.error) return response.data;
       lastMessage = await getFunctionErrorMessage(response.error);
       const transient = /503|429|UNAVAILABLE|RESOURCE_EXHAUSTED|high demand/i.test(lastMessage);
-      if (!transient || attempt === 3) throw new Error(lastMessage);
+      if (!transient || attempt === 1) throw new Error(lastMessage);
       const delay = (2 ** attempt) * 1_200 + Math.floor(Math.random() * 600);
-      setStatus(`Gemini가 혼잡합니다. 잠시 후 자동 재시도합니다 (${attempt + 2}/4)…`);
+      setStatus(`Gemini가 혼잡합니다. 잠시 후 자동 재시도합니다 (${attempt + 2}/2)…`);
       await new Promise((resolve) => window.setTimeout(resolve, delay));
     }
     throw new Error(lastMessage);

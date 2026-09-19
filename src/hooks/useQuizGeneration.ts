@@ -7,6 +7,8 @@ import type { ReadingQuestion, StudyDocument, VocabularyItem } from "../types";
 import {
   createAdditionalClozeQuestions,
   createLocalComprehensionQuestions,
+  MAX_CLOZE_GENERATION_COUNT,
+  MAX_COMPREHENSION_GENERATION_COUNT,
   mergeUniqueQuestions,
 } from "../features/quiz/quiz-utils";
 
@@ -35,7 +37,10 @@ export function useQuizGeneration({
   const startQuizGeneration = async (type: QuizGenerationType, requestedCount: number) => {
     if (!current || generationJob?.status === "running") return;
     const target = current;
-    const count = Math.max(1, Math.min(type === "comprehension" ? 5 : 20, requestedCount));
+    const count = Math.max(1, Math.min(
+      type === "comprehension" ? MAX_COMPREHENSION_GENERATION_COUNT : MAX_CLOZE_GENERATION_COUNT,
+      requestedCount,
+    ));
     const runId = generationRun.current + 1;
     generationRun.current = runId;
     setGenerationJob({
@@ -56,26 +61,32 @@ export function useQuizGeneration({
         let generated: ReadingQuestion[] = [];
         if (supabase && session) {
           let lastError = "AI 문제 생성에 실패했습니다.";
-          for (let attempt = 0; attempt < 3; attempt += 1) {
+          for (let attempt = 0; attempt < 2; attempt += 1) {
             if (generationRun.current !== runId) return;
             const response = await supabase.functions.invoke("process-document", {
-              body: { action: "analyze", title: `${target.title} 추가 문제`, text: target.original_text },
+              body: {
+                action: "generate-questions",
+                title: `${target.title} 추가 문제`,
+                text: target.original_text,
+                questionCount: count,
+                existingQuestions: target.analysis.questions.map((question) => question.question),
+              },
             });
             if (!response.error) {
-              generated = (response.data?.analysis?.questions ?? []).slice(0, count) as ReadingQuestion[];
+              generated = (response.data?.questions ?? []).slice(0, count) as ReadingQuestion[];
               break;
             }
             lastError = await getFunctionErrorMessage(response.error);
             if (
               !/429|503|UNAVAILABLE|RESOURCE_EXHAUSTED|high demand/i.test(lastError) ||
-              attempt === 2
+              attempt === 1
             ) throw new Error(lastError);
             setGenerationJob({
               id: runId,
               type,
               documentId: target.id,
               status: "running",
-              message: `AI 서버 재시도 중 (${attempt + 2}/3)… 다른 화면을 이용해도 됩니다.`,
+              message: `AI 서버 재시도 중 (${attempt + 2}/2)… 다른 화면을 이용해도 됩니다.`,
             });
             await new Promise((resolve) => window.setTimeout(resolve, (2 ** attempt) * 1_500));
           }

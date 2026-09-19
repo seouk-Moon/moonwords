@@ -77,6 +77,7 @@ export default function App({ supabaseUrl, supabasePublishableKey }: AppProps = 
           onRenameFolder={workspace.renameFolder}
           onDeleteFolder={workspace.deleteFolder}
           onMoveDocument={workspace.moveDocumentToFolder}
+          onMoveFolder={workspace.moveFolder}
           />
       )}
 
@@ -91,12 +92,14 @@ export default function App({ supabaseUrl, supabasePublishableKey }: AppProps = 
 
       {!infoPage && workspace.current && workspace.view === "study" && (
         <StudyView
+          key={workspace.current.id}
           doc={workspace.current}
           words={workspace.words}
           progress={workspace.progress}
           onSaveWord={workspace.saveWord}
           onDeleteWord={workspace.deleteWord}
           onProgress={workspace.saveProgress}
+          onRenameDocument={workspace.renameDocument}
         />
       )}
 

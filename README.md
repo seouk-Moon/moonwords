@@ -18,15 +18,19 @@ Gemini 키는 Edge Function secret으로만 보관합니다. GitHub 변수에는
 2. SQL Editor에서 `supabase/migrations/202608200001_initial_schema.sql`을 실행합니다.
 3. Authentication → Providers에서 Email을 켜고, Confirm email을 활성화합니다.
 4. Authentication → URL Configuration에 GitHub Pages 주소를 Site URL과 Redirect URLs로 등록합니다.
-5. Supabase CLI로 로그인한 뒤 함수를 배포하고 secret을 등록합니다.
+5. Supabase CLI로 로그인한 뒤 migration, 함수와 secret을 반영합니다.
 
 ```bash
 npx supabase login
 npx supabase link --project-ref YOUR_PROJECT_REF
+npx supabase db push
 npx supabase secrets set GEMINI_API_KEY=YOUR_GEMINI_API_KEY
-npx supabase secrets set GEMINI_MODEL=gemini-3.7-flash
+npx supabase secrets set GEMINI_MODEL=gemini-3.8-flash
+npx supabase secrets set GEMINI_FALLBACK_MODELS=gemini-3.7-flash,gemini-3.5-flash-lite
 npx supabase functions deploy process-document
 ```
+
+이미 운영 중인 프로젝트라면 최소한 `supabase/migrations/202609190001_folder_order.sql`을 SQL Editor에서 한 번 실행해야 폴더 순서가 기기 간에 저장됩니다. Gemini 호출은 Edge Function 안에서 일시적인 429/503/5xx 오류를 지수 백오프로 재시도하고, 계속 실패하면 설정된 대체 모델을 순서대로 사용합니다. 추가 본문 이해 문제는 전체 본문 분석을 다시 만들지 않고 문제만 생성해 응답 시간과 오류 가능성을 줄입니다.
 
 ## 2. 로컬 실행
 
