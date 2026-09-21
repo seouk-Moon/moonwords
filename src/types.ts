@@ -58,6 +58,8 @@ export type StudyDocument = {
   analysis: DocumentAnalysis;
   created_at: string;
   updated_at: string;
+  /** UI에서 최근 학습 순서/날짜를 표시하기 위해 study_progress에서 합쳐지는 값 */
+  last_studied_at?: string | null;
 };
 
 export type VocabularyItem = {

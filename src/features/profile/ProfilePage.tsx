@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import type { Session } from "@supabase/supabase-js";
 import { clearLocalSupabaseAuthSession, supabase } from "../../lib/supabase";
-import type { LearningAnalyticsSnapshot } from "../progress/learning-analytics";
+import type { DailyGoalSettings, LearningAnalyticsSnapshot } from "../progress/learning-analytics";
 import { LearningDashboard } from "../progress/LearningDashboard";
 
 type GenderValue = "" | "female" | "male" | "other" | "prefer_not_to_say";
@@ -9,6 +9,8 @@ type GenderValue = "" | "female" | "male" | "other" | "prefer_not_to_say";
 type Props = {
   session: Session;
   analytics: LearningAnalyticsSnapshot;
+  goals: DailyGoalSettings;
+  onGoalsChange: (next: DailyGoalSettings) => void;
   onBack: () => void;
 };
 
@@ -17,7 +19,7 @@ const initials = (nickname: string, fullName: string, email?: string) => {
   return source.slice(0, 2).toUpperCase();
 };
 
-export function ProfilePage({ session, analytics, onBack }: Props) {
+export function ProfilePage({ session, analytics, goals, onGoalsChange, onBack }: Props) {
   const metadata = session.user.user_metadata ?? {};
   const [fullName, setFullName] = useState(String(metadata.full_name ?? ""));
   const [nickname, setNickname] = useState(String(metadata.nickname ?? ""));
@@ -236,7 +238,7 @@ export function ProfilePage({ session, analytics, onBack }: Props) {
           <p>첫 화면 대신 프로필에서 필요할 때만 확인할 수 있어요.</p>
         </div>
       </section>
-      <LearningDashboard analytics={analytics} />
+      <LearningDashboard analytics={analytics} goals={goals} onGoalsChange={onGoalsChange} />
     </main>
   );
 }

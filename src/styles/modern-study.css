@@ -2120,3 +2120,85 @@ button { font-weight: 650; }
   }
   .support-chat-launcher { min-width: 98px; height: 46px; padding-inline: 14px; }
 }
+
+/* V9 — chapter listening, simplified daily goals, easier contact */
+.paragraph-block > header > div { min-width: 0; }
+.chapter-listen-button {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 34px;
+  border: 1px solid #dbe3ef;
+  border-radius: 9px;
+  padding: 7px 10px;
+  background: #fff;
+  color: #315bba;
+  font: inherit;
+  font-size: 9px;
+  font-weight: 700;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.chapter-listen-button:hover, .chapter-listen-button.active { border-color: #a9bff0; background: #f2f6ff; color: #1d4ed8; }
+.chapter-listen-button svg { width: 14px; height: 14px; }
+
+.simple-learning-overview { display: grid; grid-template-columns: minmax(0, 1.55fr) minmax(220px, .65fr); gap: 14px; }
+.mission-card, .simple-streak-card { border: 1px solid #e3e8f0; border-radius: 18px; background: #fff; box-shadow: 0 8px 26px rgba(15,23,42,.04); }
+.mission-card { padding: 22px; }
+.mission-card > header { display: flex; align-items: flex-start; justify-content: space-between; gap: 14px; }
+.mission-card h3, .simple-streak-card h3 { margin: 5px 0 0; font-size: 18px; font-weight: 820; letter-spacing: -.03em; }
+.mission-card-actions { display: flex; align-items: center; gap: 9px; }
+.mission-card-actions strong { color: #2563eb; font-size: 25px; font-weight: 850; }
+.mission-card-actions button, .analytics-details-toggle, .goal-settings-buttons button {
+  border: 1px solid #dce3ed; border-radius: 9px; padding: 8px 10px; background: #fff; color: #596273; font: inherit; font-size: 9px; font-weight: 720; cursor: pointer;
+}
+.goal-row.goal-disabled { opacity: .55; }
+.goal-row.goal-disabled i { background: #aeb7c4; }
+.today-study-time { display: flex; justify-content: space-between; align-items: center; margin-top: 17px; border-top: 1px solid #edf0f5; padding-top: 14px; color: #667085; font-size: 10px; }
+.today-study-time b { color: #172033; font-size: 12px; }
+.goal-settings-panel { margin-top: 16px; border: 1px solid #e4e9f1; border-radius: 12px; padding: 14px; background: #f8fafc; }
+.goal-settings-panel > p { margin: 0 0 11px; color: #7b8494; font-size: 9px; }
+.goal-settings-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 9px; }
+.goal-settings-grid label { display: grid; gap: 5px; color: #596273; font-size: 9px; font-weight: 700; }
+.goal-settings-grid input { width: 100%; border: 1px solid #d7dee9; border-radius: 8px; padding: 9px; background: #fff; color: #172033; font: inherit; }
+.goal-settings-buttons { display: flex; justify-content: flex-end; gap: 7px; margin-top: 12px; }
+.goal-settings-buttons .primary-button { border-color: #2563eb; background: #2563eb; color: #fff; }
+.simple-streak-card { display: flex; flex-direction: column; justify-content: center; min-height: 220px; padding: 24px; background: linear-gradient(145deg, #13203d, #1c315e); color: #fff; }
+.simple-streak-card .growth-kicker { color: #a8c0f4; }
+.simple-streak-card > strong { margin-top: 10px; font-size: 50px; line-height: 1; letter-spacing: -.06em; }
+.simple-streak-card > strong small { margin-left: 4px; font-size: 14px; font-weight: 700; }
+.simple-streak-card h3 { color: #fff; }
+.simple-streak-card p { margin: 8px 0 0; color: #bdcbe5; font-size: 10px; line-height: 1.6; }
+.analytics-details-toggle { width: 100%; display: flex; justify-content: space-between; align-items: center; padding: 12px 15px; background: #f8fafc; font-size: 10px; }
+.analytics-details-toggle:hover { background: #f1f5f9; color: #1d4ed8; }
+.analytics-details { display: grid; gap: 14px; }
+.simple-week-summary { grid-template-columns: repeat(4, 1fr); }
+.simple-history-list { margin-top: 15px; }
+.simple-history-list > div { grid-template-columns: minmax(70px, 1.1fr) repeat(4, 1fr) auto; }
+
+.service-product-tag { display: inline-flex; margin-bottom: 9px; border-radius: 999px; padding: 5px 8px; background: #eff4ff; color: #315bba; font-size: 8px; font-weight: 850; letter-spacing: .1em; }
+.external-service-list h2 { font-size: 17px; }
+.contact-form-grid { display: grid; grid-template-columns: 180px 1fr; gap: 11px; margin-top: 18px; }
+.contact-form-grid label { display: grid; gap: 6px; color: #475467; font-size: 9px; font-weight: 750; }
+.contact-form-grid input, .contact-form-grid select, .contact-form-grid textarea { width: 100%; border: 1px solid #d9e0ea; border-radius: 9px; padding: 10px 11px; background: #fff; color: #172033; font: inherit; font-size: 10px; outline: none; }
+.contact-form-grid input:focus, .contact-form-grid select:focus, .contact-form-grid textarea:focus { border-color: #8aa8e8; box-shadow: 0 0 0 3px rgba(37,99,235,.08); }
+.contact-detail-field { grid-column: 1 / -1; }
+.contact-form-grid textarea { min-height: 120px; resize: vertical; line-height: 1.6; }
+.contact-submit-button { border: 0; cursor: pointer; }
+
+@media (max-width: 700px) {
+  .paragraph-block > header { align-items: flex-start; flex-wrap: wrap; }
+  .paragraph-block > header > div { flex: 1; }
+  .chapter-listen-button { margin-left: auto; }
+  .simple-learning-overview { grid-template-columns: 1fr; }
+  .mission-card, .simple-streak-card { border-radius: 15px; padding: 17px; }
+  .simple-streak-card { min-height: 160px; }
+  .goal-settings-grid { grid-template-columns: 1fr; }
+  .simple-week-summary { grid-template-columns: repeat(2, 1fr); row-gap: 12px; }
+  .simple-history-list > div { grid-template-columns: 1fr 1fr; }
+  .simple-history-list .history-date, .simple-history-list > div > span { grid-column: 1 / -1; }
+  .contact-form-grid { grid-template-columns: 1fr; }
+  .contact-detail-field { grid-column: auto; }
+}

@@ -29,10 +29,13 @@ type ChatMessage = SupportReply & {
 };
 
 const supportQuickTopics = [
+  "학습시간·오늘 목표",
+  "최근 학습 날짜",
+  "챕터별 듣기",
+  "PDF·OCR 한글",
+  "문의하는 방법",
   "문장 수가 안 맞아요",
-  "PDF·OCR 도움",
   "Gemini 503 오류",
-  "제목·폴더 사용법",
 ];
 
 const documentQuickTopics = [
@@ -54,10 +57,62 @@ const viewNames: Record<SupportContext["view"], string> = {
   profile: "프로필",
 };
 
-const includesAny = (source: string, keywords: string[]) => keywords.some((keyword) => source.includes(keyword));
+const compactText = (value: string) => value.toLowerCase().normalize("NFKC").replace(/[^a-z0-9가-힣]+/g, "");
+const textTokens = (value: string) => value.toLowerCase().normalize("NFKC").match(/[a-z0-9가-힣]+/g) ?? [];
+
+const isOneEditAway = (first: string, second: string) => {
+  if (first === second) return true;
+  if (Math.abs(first.length - second.length) > 1) return false;
+  let left = 0;
+  let right = 0;
+  let edits = 0;
+  while (left < first.length && right < second.length) {
+    if (first[left] === second[right]) {
+      left += 1;
+      right += 1;
+      continue;
+    }
+    edits += 1;
+    if (edits > 1) return false;
+    if (first.length > second.length) left += 1;
+    else if (second.length > first.length) right += 1;
+    else {
+      left += 1;
+      right += 1;
+    }
+  }
+  if (left < first.length || right < second.length) edits += 1;
+  return edits <= 1;
+};
+
+const fuzzyTokenContains = (token: string, target: string) => {
+  if (token.length < 3 || target.length < 3) return false;
+  if (isOneEditAway(token, target)) return true;
+  if (token.length < target.length) return false;
+  const windowLengths = [target.length, target.length + 1];
+  return windowLengths.some((windowLength) => {
+    if (windowLength > token.length) return false;
+    for (let start = 0; start + windowLength <= token.length; start += 1) {
+      if (isOneEditAway(token.slice(start, start + windowLength), target)) return true;
+    }
+    return false;
+  });
+};
+
+const includesAny = (source: string, keywords: string[]) => {
+  const compact = compactText(source);
+  const tokens = textTokens(source).map(compactText);
+  return keywords.some((keyword) => {
+    const target = compactText(keyword);
+    if (!target) return false;
+    if (compact.includes(target)) return true;
+    if (target.length < 3) return false;
+    return tokens.some((token) => fuzzyTokenContains(token, target));
+  });
+};
 
 export function getSupportReply(question: string, context: SupportContext): SupportReply {
-  const normalized = question.toLowerCase().replace(/\s+/g, " ").trim();
+  const normalized = question.toLowerCase().normalize("NFKC").replace(/\s+/g, " ").trim();
   const currentDocument = context.documentTitle
     ? `현재 본문 ‘${context.documentTitle}’은 분석 데이터 기준 ${context.sentenceCount ?? 0}문장입니다.\n\n`
     : "";
@@ -68,9 +123,33 @@ export function getSupportReply(question: string, context: SupportContext): Supp
     };
   }
 
+  if (includesAny(normalized, ["학습시간", "시간기록", "시간 카운트", "시간안올라", "카운트안", "오늘 목표", "하루미션", "미션", "streak", "스트릭", "연속학습"])) {
+    return {
+      text: "학습시간은 본문·단어장·퀴즈 화면에서 실제로 활동한 시간을 짧은 간격으로 기록합니다. 프로필의 ‘오늘 미션’에서 전체 듣기·플래시카드·퀴즈 목표를 각각 바꿀 수 있고, 설정한 미션을 모두 끝낸 날이 streak로 인정됩니다. 날짜별 추이는 ‘상세 학습 기록 보기’를 눌러 확인하세요.",
+    };
+  }
+
+  if (includesAny(normalized, ["챕터", "쳅터", "챕터 듣기", "챕터별", "문단 듣기", "챕터재생", "구간 듣기"])) {
+    return {
+      text: "본문 전체 듣기는 상단 재생 버튼을 사용하고, 특정 챕터만 들으려면 각 챕터 제목 오른쪽의 ‘챕터 듣기’를 누르세요. 같은 버튼으로 일시정지·계속 듣기가 가능합니다. 문장별 듣기도 기존처럼 사용할 수 있어요.",
+    };
+  }
+
+  if (includesAny(normalized, ["최근 학습", "최근학습", "등록일", "등록 날짜", "학습 날짜", "날짜 표시", "날짜 정렬"])) {
+    return {
+      text: "내 본문의 날짜는 등록일이 아니라 ‘최근 학습’ 날짜입니다. 본문을 열거나 진도가 저장되면 최근 학습 시각이 갱신되고, 본문 목록도 최근에 공부한 자료가 먼저 보이도록 정렬됩니다. 아직 한 번도 학습하지 않은 자료는 ‘아직 학습 없음’으로 표시됩니다.",
+    };
+  }
+
+  if (includesAny(normalized, ["문의", "제보", "issue", "issues", "new issue", "newissue", "깃허브 문의"])) {
+    return {
+      text: "화면 아래 ‘문의하기’에서 문의 종류·제목·내용만 적고 ‘문의 화면 열기’를 누르세요. GitHub 문의 화면에 내용이 자동으로 채워집니다. GitHub 로그인이 필요할 수 있고, 비밀번호·API 키·개인 문서 원문은 적지 마세요.",
+    };
+  }
+
   if (includesAny(normalized, ["ocr", "pdf", "스캔", "화질", "텍스트 추출", "글자 추출"])) {
     return {
-      text: "PDF에 선택 가능한 글자가 있으면 바로 추출하고, 글자가 없거나 깨진 페이지만 화질 보정 후 OCR을 실행합니다. 그래서 선명한 PDF에는 불필요한 보정을 하지 않습니다.\n\n추출한 텍스트는 ‘Moonwords로 보내기’로 본문 추가 화면에 그대로 이어집니다. OCR은 브라우저에서 처리되며 최대 30페이지까지 지원합니다.",
+      text: "PDF에 선택 가능한 글자가 있으면 바로 추출하고, 글자가 없거나 깨진 페이지만 화질 보정 후 OCR을 실행합니다. 그래서 선명한 PDF에는 불필요한 보정을 하지 않습니다.\n\n추출한 텍스트는 ‘Moonwords로 보내기’로 본문 추가 화면에 그대로 이어집니다. OCR은 브라우저에서 영어와 한국어를 함께 인식하며 최대 30페이지까지 지원합니다.",
       action: { label: "PDF 텍스트 추출기 열기", href: "./pdf-extractor.html" },
     };
   }
@@ -99,7 +178,7 @@ export function getSupportReply(question: string, context: SupportContext): Supp
     };
   }
 
-  if (includesAny(normalized, ["문제", "퀴즈", "10개", "추가 생성"])) {
+  if (includesAny(normalized, ["퀴즈", "퀴즈 문제", "문제 생성", "문항 생성", "10개", "추가 생성"])) {
     return {
       text: "퀴즈 화면의 문제 추가에서 한 번에 최대 10개까지 만들 수 있습니다. 기존 문제는 유지되고 새 문제만 중복을 피해 추가됩니다.",
     };
@@ -107,7 +186,7 @@ export function getSupportReply(question: string, context: SupportContext): Supp
 
   if (includesAny(normalized, ["듣기", "재생", "일시정지", "음성", "소리"])) {
     return {
-      text: "본문 위 재생 버튼은 전체 듣기, 각 문장의 재생 버튼은 한 문장 듣기입니다. 재생 중 같은 버튼을 누르면 일시정지되고, 다시 누르면 이어서 재생됩니다. 브라우저에서 소리가 차단됐다면 사이트의 소리 권한도 확인해 주세요.",
+      text: "본문 위 재생 버튼은 전체 듣기, 각 챕터 제목 오른쪽 버튼은 챕터 듣기, 각 문장의 재생 버튼은 한 문장 듣기입니다. 재생 중 같은 버튼을 누르면 일시정지되고, 다시 누르면 이어서 재생됩니다. 브라우저에서 소리가 차단됐다면 사이트의 소리 권한도 확인해 주세요.",
     };
   }
 
@@ -135,11 +214,11 @@ export function getSupportReply(question: string, context: SupportContext): Supp
   }
 
   if (includesAny(normalized, ["안녕", "도움", "뭐 할", "사용법"])) {
-    return { text: "반가워요. 문장 수 불일치, PDF·OCR, Gemini 503, 본문 제목, 폴더 순서, 퀴즈, 듣기 문제를 물어보세요." };
+    return { text: "반가워요. 학습시간, 최근 학습 날짜, 챕터 듣기, PDF·OCR, 문의, 퀴즈 문제를 물어보세요." };
   }
 
   return {
-    text: "아직 그 질문에 맞는 자동 해결 안내를 찾지 못했어요. 오류 문구나 증상을 조금 더 구체적으로 적어 주세요. 예: ‘Gemini 503’, ‘문장이 29에서 멈춤’, ‘스캔 PDF 글자가 안 나옴’",
+    text: `짧게 키워드만 적어도 괜찮아요. 예: ‘학습시간’, ‘최근 학습’, ‘챕터 듣기’, ‘OCR 한글’, ‘문의’, ‘퀴즈’. 현재 ${viewNames[context.view]} 화면 기준으로 가능한 해결 방법을 안내할게요. 오류 문구가 있으면 그대로 붙여 넣어 주세요.`,
   };
 }
 

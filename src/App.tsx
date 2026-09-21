@@ -161,6 +161,7 @@ export default function App({ supabaseUrl, supabasePublishableKey }: AppProps = 
           onDeleteWord={workspace.deleteWord}
           onProgress={workspace.saveProgress}
           onRenameDocument={workspace.renameDocument}
+          onFullListeningComplete={workspace.recordFullListeningCompleted}
         />
       )}
 
@@ -194,6 +195,8 @@ export default function App({ supabaseUrl, supabasePublishableKey }: AppProps = 
         <ProfilePage
           session={workspace.session}
           analytics={workspace.learningAnalytics}
+          goals={workspace.dailyGoals}
+          onGoalsChange={workspace.updateDailyGoals}
           onBack={() => navigateToView("library")}
         />
       )}

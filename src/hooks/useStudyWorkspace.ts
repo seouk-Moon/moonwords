@@ -67,18 +67,27 @@ export function useStudyWorkspace(configured: boolean) {
     void Promise.all([
       supabase.from("documents").select("*").order("created_at", { ascending: false }),
       supabase.from("document_folders").select("*").order("created_at", { ascending: true }),
-    ]).then(([documentResult, folderResult]) => {
-      if (!documentResult.error) setDocuments((documentResult.data as StudyDocument[]).map(normalizeDocumentLevel));
+      supabase.from("study_progress").select("document_id,last_studied_at"),
+    ]).then(([documentResult, folderResult, progressResult]) => {
+      if (!documentResult.error) {
+        const recentByDocument = new Map<string, string>((progressResult.data ?? []).map((row: { document_id: string; last_studied_at: string }) => [row.document_id, row.last_studied_at]));
+        setDocuments((documentResult.data as StudyDocument[]).map((document) => normalizeDocumentLevel({ ...document, last_studied_at: recentByDocument.get(document.id) ?? null })));
+      }
       // Older deployments may not have the folder migration yet. Keep the rest of the app usable.
       if (!folderResult.error) setFolders(sortFolders(folderResult.data as DocumentFolder[]));
     });
   }, [session]);
 
   const openDocument = useCallback(async (doc: StudyDocument) => {
-    const normalizedDocument = normalizeDocumentLevel(doc);
+    const now = new Date().toISOString();
+    const normalizedDocument = normalizeDocumentLevel({ ...doc, last_studied_at: now });
     setCurrent(normalizedDocument);
+    setDocuments((items) => items.map((item) => item.id === doc.id ? { ...item, last_studied_at: now } : item));
     setView("study");
-    if (!supabase || !session) return;
+    if (!supabase || !session) {
+      setProgress((currentProgress) => ({ ...currentProgress, document_id: doc.id, last_studied_at: now }));
+      return;
+    }
 
     const [wordResult, progressResult] = await Promise.all([
       supabase.from("vocabulary").select("*").eq("document_id", doc.id).order("created_at"),
@@ -86,16 +95,19 @@ export function useStudyWorkspace(configured: boolean) {
     ]);
 
     setWords((wordResult.data ?? []) as VocabularyItem[]);
-    setProgress(
-      (progressResult.data as StudyProgress | null) ?? {
+    const nextProgress: StudyProgress = {
+      ...((progressResult.data as StudyProgress | null) ?? {
         user_id: session.user.id,
         document_id: doc.id,
         understood_sentence_ids: [],
         bookmarked_sentence_ids: [],
         sentence_notes: {},
-        last_studied_at: new Date().toISOString(),
-      },
-    );
+        last_studied_at: now,
+      }),
+      last_studied_at: now,
+    };
+    setProgress(nextProgress);
+    void supabase.from("study_progress").upsert({ ...nextProgress, user_id: session.user.id }, { onConflict: "user_id,document_id" });
   }, [session]);
 
   const saveWord = async (
@@ -161,6 +173,8 @@ export function useStudyWorkspace(configured: boolean) {
     }
 
     setProgress(next);
+    setDocuments((items) => items.map((item) => item.id === next.document_id ? { ...item, last_studied_at: next.last_studied_at } : item));
+    setCurrent((item) => item?.id === next.document_id ? { ...item, last_studied_at: next.last_studied_at } : item);
     if (supabase && session) {
       void supabase
         .from("study_progress")
@@ -373,6 +387,9 @@ export function useStudyWorkspace(configured: boolean) {
     recordQuizAnswer,
     recordQuizAttempt,
     learningAnalytics: learning.snapshot,
+    dailyGoals: learning.dailyGoals,
+    updateDailyGoals: learning.updateDailyGoals,
+    recordFullListeningCompleted: learning.recordFullListeningCompleted,
     addDocumentAndOpen,
     applyUpdatedDocument,
     renameDocument,

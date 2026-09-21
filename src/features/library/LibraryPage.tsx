@@ -43,9 +43,16 @@ export function LibraryPage({
   const [documentError, setDocumentError] = useState("");
 
   const filteredDocuments = useMemo(() => {
-    if (selectedFolderId === ALL_FOLDER) return documents;
-    if (selectedFolderId === UNFILED_FOLDER) return documents.filter((doc) => !doc.folder_id);
-    return documents.filter((doc) => doc.folder_id === selectedFolderId);
+    const filtered = selectedFolderId === ALL_FOLDER
+      ? documents
+      : selectedFolderId === UNFILED_FOLDER
+        ? documents.filter((doc) => !doc.folder_id)
+        : documents.filter((doc) => doc.folder_id === selectedFolderId);
+    return [...filtered].sort((first, second) => {
+      const firstTime = new Date(first.last_studied_at ?? 0).getTime();
+      const secondTime = new Date(second.last_studied_at ?? 0).getTime();
+      return secondTime - firstTime;
+    });
   }, [documents, selectedFolderId]);
 
   const recent = filteredDocuments[0];
@@ -162,7 +169,7 @@ export function LibraryPage({
           <div className="continue-reading-meta">
             <strong>{recent.analysis.sentences.length}</strong>
             <span>문장</span>
-            <small>{formatDate(recent.updated_at || recent.created_at)}</small>
+            <small>{recent.last_studied_at ? `최근 학습 ${formatDate(recent.last_studied_at)}` : "아직 학습 없음"}</small>
           </div>
         </button>
       ) : (
@@ -189,7 +196,7 @@ export function LibraryPage({
               <button className="document-open-area" onClick={() => onOpen(doc)}>
                 <div className="document-card-topline">
                   <span className="doc-topic">{doc.analysis.topic || "English Reading"}</span>
-                  <span className="document-date">{formatDate(doc.created_at)}</span>
+                  <span className="document-date">{doc.last_studied_at ? `최근 학습 ${formatDate(doc.last_studied_at)}` : "아직 학습 없음"}</span>
                 </div>
                 <h3>{doc.title}</h3>
                 <p>{doc.analysis.summary}</p>

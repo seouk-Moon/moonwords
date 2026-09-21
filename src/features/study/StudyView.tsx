@@ -16,9 +16,10 @@ type Props = {
   onDeleteWord: (id: string) => Promise<void>;
   onProgress: (next: StudyProgress) => void;
   onRenameDocument: (documentId: string, title: string) => Promise<void>;
+  onFullListeningComplete: () => void;
 };
 
-export function StudyView({ doc, words, progress, onSaveWord, onDeleteWord, onProgress, onRenameDocument }: Props) {
+export function StudyView({ doc, words, progress, onSaveWord, onDeleteWord, onProgress, onRenameDocument, onFullListeningComplete }: Props) {
   const [selected, setSelected] = useState<SelectedWord | null>(null);
   const [loadingMeaning, setLoadingMeaning] = useState(false);
   const [lookupHighlight, setLookupHighlight] = useState<{ word: string; sentenceId: number; status: "loading" | "done" } | null>(null);
@@ -27,6 +28,8 @@ export function StudyView({ doc, words, progress, onSaveWord, onDeleteWord, onPr
   const [speakingSentenceIndex, setSpeakingSentenceIndex] = useState<number | null>(null);
   const [singleSpeakingSentenceIndex, setSingleSpeakingSentenceIndex] = useState<number | null>(null);
   const [singleListeningState, setSingleListeningState] = useState<"idle" | "playing" | "paused">("idle");
+  const [chapterListeningKey, setChapterListeningKey] = useState<string | null>(null);
+  const [chapterListeningState, setChapterListeningState] = useState<"idle" | "playing" | "paused">("idle");
   const [showFloatingListeningControls, setShowFloatingListeningControls] = useState(false);
   const [showOriginal, setShowOriginal] = useState(false);
   const [editingTitle, setEditingTitle] = useState(false);
@@ -132,6 +135,8 @@ export function StudyView({ doc, words, progress, onSaveWord, onDeleteWord, onPr
     setSpeakingSentenceIndex(null);
     setSingleSpeakingSentenceIndex(null);
     setSingleListeningState("idle");
+    setChapterListeningKey(null);
+    setChapterListeningState("idle");
   }, []);
 
   const playNext = useCallback(function playNext(index: number, run: number, sentenceTime = 0, pauseOnStart = false) {
@@ -140,6 +145,7 @@ export function StudyView({ doc, words, progress, onSaveWord, onDeleteWord, onPr
       setListeningState("idle");
       setSpeakingSentenceIndex(null);
       playbackPosition.current = { sentenceIndex: 0, sentenceTime: 0, startedAt: 0 };
+      onFullListeningComplete();
       return;
     }
     const sentence = sentences[index];
@@ -170,7 +176,7 @@ export function StudyView({ doc, words, progress, onSaveWord, onDeleteWord, onPr
       if (run === listeningRun.current) stopListening();
     };
     window.speechSynthesis.speak(utterance);
-  }, [estimateSentenceDuration, sentenceOffsetToCharIndex, sentences, stopListening]);
+  }, [estimateSentenceDuration, onFullListeningComplete, sentenceOffsetToCharIndex, sentences, stopListening]);
 
   const startFullListening = () => {
     listeningRun.current += 1;
@@ -179,9 +185,63 @@ export function StudyView({ doc, words, progress, onSaveWord, onDeleteWord, onPr
     playbackPosition.current = { sentenceIndex: 0, sentenceTime: 0, startedAt: 0 };
     setSingleSpeakingSentenceIndex(null);
     setSingleListeningState("idle");
+    setChapterListeningKey(null);
+    setChapterListeningState("idle");
     setListeningState("playing");
     setSpeakingSentenceIndex(null);
     playNext(0, run);
+  };
+
+  const playChapterNext = useCallback(function playChapterNext(indices: number[], position: number, run: number, key: string) {
+    if (run !== listeningRun.current) return;
+    if (position >= indices.length) {
+      setChapterListeningKey(null);
+      setChapterListeningState("idle");
+      setSpeakingSentenceIndex(null);
+      return;
+    }
+    const sentenceIndex = indices[position];
+    const sentence = sentences[sentenceIndex];
+    if (!sentence) {
+      playChapterNext(indices, position + 1, run, key);
+      return;
+    }
+    const utterance = new SpeechSynthesisUtterance(sentence.english);
+    utterance.lang = "en-US";
+    utterance.rate = 0.86;
+    utterance.onstart = () => {
+      if (run !== listeningRun.current) return;
+      setChapterListeningKey(key);
+      setChapterListeningState("playing");
+      setSpeakingSentenceIndex(sentenceIndex);
+      document.querySelector(`[data-sentence-index="${sentenceIndex}"]`)?.scrollIntoView({ behavior: "smooth", block: "center" });
+    };
+    utterance.onend = () => playChapterNext(indices, position + 1, run, key);
+    utterance.onerror = () => { if (run === listeningRun.current) stopListening(); };
+    window.speechSynthesis.speak(utterance);
+  }, [sentences, stopListening]);
+
+  const toggleChapterListening = (key: string, indices: number[]) => {
+    if (chapterListeningKey === key && chapterListeningState === "playing") {
+      window.speechSynthesis.pause();
+      setChapterListeningState("paused");
+      return;
+    }
+    if (chapterListeningKey === key && chapterListeningState === "paused") {
+      window.speechSynthesis.resume();
+      setChapterListeningState("playing");
+      return;
+    }
+    listeningRun.current += 1;
+    window.speechSynthesis.cancel();
+    const run = listeningRun.current;
+    setListeningState("idle");
+    setSingleSpeakingSentenceIndex(null);
+    setSingleListeningState("idle");
+    setChapterListeningKey(key);
+    setChapterListeningState("playing");
+    setSpeakingSentenceIndex(null);
+    playChapterNext(indices, 0, run, key);
   };
 
   const currentSentenceTime = useCallback(() => {
@@ -299,6 +359,8 @@ export function StudyView({ doc, words, progress, onSaveWord, onDeleteWord, onPr
     const run = listeningRun.current;
     setListeningState("idle");
     setSpeakingSentenceIndex(null);
+    setChapterListeningKey(null);
+    setChapterListeningState("idle");
     setSingleSpeakingSentenceIndex(sentenceIndex);
     setSingleListeningState("playing");
     const utterance = new SpeechSynthesisUtterance(text);
@@ -440,7 +502,7 @@ export function StudyView({ doc, words, progress, onSaveWord, onDeleteWord, onPr
             />
           </div>
           {studySections.map((group, sectionIndex) => <section className="paragraph-block" key={group.key}>
-            <header><span>{String(sectionIndex + 1).padStart(2, "0")}</span><div><b>{group.section.label}</b><small>{group.section.role}</small></div></header>
+            <header><span>{String(sectionIndex + 1).padStart(2, "0")}</span><div><b>{group.section.label}</b><small>{group.section.role}</small></div><button type="button" className={`chapter-listen-button ${chapterListeningKey === group.key ? "active" : ""}`} aria-pressed={chapterListeningKey === group.key && chapterListeningState !== "idle"} onClick={() => toggleChapterListening(group.key, group.sentences.map((item) => item.sourceIndex))}><PlaybackIcon name={chapterListeningKey === group.key && chapterListeningState === "playing" ? "pause" : "play"} />{chapterListeningKey === group.key && chapterListeningState === "playing" ? "일시정지" : chapterListeningKey === group.key && chapterListeningState === "paused" ? "계속 듣기" : "챕터 듣기"}</button></header>
             {group.sentences.map(({ sentence, displayNumber, sourceIndex }) => {
               const sentenceWords = words.filter((word) => word.sentence_id === sentence.id);
               const sentenceIsPlaying = singleSpeakingSentenceIndex === sourceIndex && singleListeningState === "playing";
@@ -454,7 +516,7 @@ export function StudyView({ doc, words, progress, onSaveWord, onDeleteWord, onPr
         </article>
         <aside className="insight-panel" onScroll={() => setSelected(null)}><span className="section-kicker">READING MAP</span><h3>본문 구조</h3><p>{doc.analysis.structure}</p><div className="structure-list">{studySections.map((group, index) => <div key={group.key}><b>{index + 1}</b><span>{group.section.label}<small>{group.section.role}</small></span></div>)}</div></aside>
       </div>
-      {showFloatingListeningControls && singleSpeakingSentenceIndex === null && <ListeningControls
+      {showFloatingListeningControls && singleSpeakingSentenceIndex === null && chapterListeningState === "idle" && <ListeningControls
         state={listeningState}
         currentSentenceIndex={speakingSentenceIndex === null ? 0 : speakingSentenceIndex + 1}
         sentenceCount={sentences.length}

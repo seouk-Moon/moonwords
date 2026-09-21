@@ -4,7 +4,7 @@ import type { View, QuizMode } from "../app-types";
 import type { LearningEvent, LearningEventType, LearningSession, QuizAttempt, StudyDocument } from "../types";
 import { uid } from "../lib/app-utils";
 import { supabase } from "../lib/supabase";
-import { buildLearningAnalytics } from "../features/progress/learning-analytics";
+import { buildLearningAnalytics, DEFAULT_DAILY_GOALS, localDateKey, normalizeDailyGoals, type DailyGoalSettings } from "../features/progress/learning-analytics";
 
 const quizXp = (correct: boolean) => correct ? 10 : 3;
 const activeViews: View[] = ["study", "words", "quiz"];
@@ -24,6 +24,21 @@ export function useLearningAnalytics({
   const [storageReady, setStorageReady] = useState(true);
   const [vocabularyCount, setVocabularyCount] = useState(0);
   const [completedDocumentIds, setCompletedDocumentIds] = useState<string[]>([]);
+  const [dailyGoals, setDailyGoals] = useState<DailyGoalSettings>(DEFAULT_DAILY_GOALS);
+
+  useEffect(() => {
+    const storageKey = `moonwords:daily-goals:${session?.user.id ?? "demo-user"}`;
+    let saved: Partial<DailyGoalSettings> | null = null;
+    if (typeof window !== "undefined") {
+      try {
+        saved = JSON.parse(window.localStorage.getItem(storageKey) ?? "null") as Partial<DailyGoalSettings> | null;
+      } catch {
+        saved = null;
+      }
+    }
+    const metadataGoals = session?.user.user_metadata?.daily_learning_goals as Partial<DailyGoalSettings> | undefined;
+    setDailyGoals(normalizeDailyGoals(metadataGoals ?? saved ?? DEFAULT_DAILY_GOALS));
+  }, [session?.user.id, session?.user.user_metadata?.daily_learning_goals]);
 
   useEffect(() => {
     if (!supabase || !session) {
@@ -56,6 +71,20 @@ export function useLearningAnalytics({
       }
     });
     return () => { cancelled = true; };
+  }, [session]);
+
+  const updateDailyGoals = useCallback((next: DailyGoalSettings) => {
+    const normalized = normalizeDailyGoals(next);
+    setDailyGoals(normalized);
+    if (typeof window !== "undefined") {
+      const storageKey = `moonwords:daily-goals:${session?.user.id ?? "demo-user"}`;
+      window.localStorage.setItem(storageKey, JSON.stringify(normalized));
+    }
+    if (supabase && session) {
+      void supabase.auth.updateUser({
+        data: { ...session.user.user_metadata, daily_learning_goals: normalized },
+      });
+    }
   }, [session]);
 
   const recordEvent = useCallback((payload: {
@@ -105,6 +134,24 @@ export function useLearningAnalytics({
     recordEvent({ eventType: "sentence_studied", sentenceId, xp: 5 });
   }, [recordEvent]);
 
+  const recordFullListeningCompleted = useCallback(() => {
+    if (!current?.id) return;
+    const todayKey = localDateKey(new Date());
+    const alreadyRecorded = events.some((event) => (
+      event.document_id === current.id
+      && event.event_type === "sentence_studied"
+      && event.metadata?.activity === "full_listening_completed"
+      && localDateKey(new Date(event.created_at)) === todayKey
+    ));
+    if (alreadyRecorded) return;
+    recordEvent({
+      eventType: "sentence_studied",
+      sentenceId: null,
+      xp: 0,
+      metadata: { activity: "full_listening_completed" },
+    });
+  }, [current?.id, events, recordEvent]);
+
   const recordWordSaved = useCallback((wordId: string) => {
     setVocabularyCount((value) => value + 1);
     recordEvent({ eventType: "word_saved", wordId, xp: 4 });
@@ -136,6 +183,7 @@ export function useLearningAnalytics({
     const localId = uid();
     const startedAt = new Date().toISOString();
     let activeSeconds = 0;
+    let activeSince = document.visibilityState === "visible" ? performance.now() : null;
     let cancelled = false;
     const learningSession: LearningSession = {
       id: localId,
@@ -154,34 +202,55 @@ export function useLearningAnalytics({
       });
     }
 
+    const captureActiveTime = () => {
+      if (activeSince === null) return;
+      const now = performance.now();
+      // Long browser sleeps/background throttling should not inflate study time.
+      activeSeconds += Math.max(0, Math.min(15, (now - activeSince) / 1000));
+      activeSince = document.visibilityState === "visible" ? now : null;
+    };
+
     const sync = (final = false) => {
+      captureActiveTime();
       const now = new Date().toISOString();
       const patch = {
-        active_seconds: activeSeconds,
+        active_seconds: Math.max(0, Math.round(activeSeconds)),
         last_active_at: now,
         ended_at: final ? now : null,
       };
       setSessions((items) => items.map((item) => item.id === localId ? { ...item, ...patch } : item));
-      if (supabase && session) void supabase.from("learning_sessions").update(patch).eq("id", localId);
+      if (supabase && session) {
+        void supabase.from("learning_sessions").update(patch).eq("id", localId).then(({ error }) => {
+          if (error && !cancelled) setStorageReady(false);
+        });
+      }
     };
 
-    const timer = window.setInterval(() => {
-      if (document.visibilityState !== "visible") return;
-      activeSeconds += 30;
-      sync(false);
-    }, 30000);
+    const onVisibilityChange = () => {
+      if (document.visibilityState === "hidden") {
+        sync(false);
+        activeSince = null;
+      } else {
+        activeSince = performance.now();
+      }
+    };
+    const onPageHide = () => sync(true);
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    window.addEventListener("pagehide", onPageHide);
+    const timer = window.setInterval(() => sync(false), 10_000);
 
     return () => {
       cancelled = true;
       window.clearInterval(timer);
-      if (document.visibilityState === "visible") activeSeconds += 5;
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+      window.removeEventListener("pagehide", onPageHide);
       sync(true);
     };
   }, [current?.id, view, session]);
 
   const snapshot = useMemo(
-    () => buildLearningAnalytics({ events, sessions, quizAttempts, storageReady, vocabularyCount, completedDocumentCount: completedDocumentIds.length }),
-    [events, sessions, quizAttempts, storageReady, vocabularyCount, completedDocumentIds],
+    () => buildLearningAnalytics({ events, sessions, quizAttempts, storageReady, vocabularyCount, completedDocumentCount: completedDocumentIds.length, dailyGoals }),
+    [events, sessions, quizAttempts, storageReady, vocabularyCount, completedDocumentIds, dailyGoals],
   );
 
   return {
@@ -189,9 +258,12 @@ export function useLearningAnalytics({
     sessions,
     quizAttempts,
     snapshot,
+    dailyGoals,
+    updateDailyGoals,
     recordQuizAnswer,
     recordQuizAttempt,
     recordSentenceStudied,
+    recordFullListeningCompleted,
     recordWordSaved,
     recordDocumentCompleted,
   };

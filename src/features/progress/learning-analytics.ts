@@ -1,6 +1,26 @@
 import type { LearningEvent, LearningSession, QuizAttempt } from "../../types";
 import type { QuizMode } from "../../app-types";
 
+export type DailyGoalSettings = {
+  fullListeningDocuments: number;
+  flashcardDocuments: number;
+  quizDocuments: number;
+};
+
+export const DEFAULT_DAILY_GOALS: DailyGoalSettings = {
+  fullListeningDocuments: 1,
+  flashcardDocuments: 1,
+  quizDocuments: 1,
+};
+
+const clampGoal = (value: unknown) => Math.max(0, Math.min(10, Math.round(Number(value) || 0)));
+
+export const normalizeDailyGoals = (value?: Partial<DailyGoalSettings> | null): DailyGoalSettings => ({
+  fullListeningDocuments: clampGoal(value?.fullListeningDocuments ?? DEFAULT_DAILY_GOALS.fullListeningDocuments),
+  flashcardDocuments: clampGoal(value?.flashcardDocuments ?? DEFAULT_DAILY_GOALS.flashcardDocuments),
+  quizDocuments: clampGoal(value?.quizDocuments ?? DEFAULT_DAILY_GOALS.quizDocuments),
+});
+
 export type DailyLearningStat = {
   dateKey: string;
   label: string;
@@ -12,6 +32,10 @@ export type DailyLearningStat = {
   wordsSaved: number;
   xp: number;
   minutes: number;
+  activeSeconds: number;
+  fullListeningDocuments: number;
+  flashcardDocuments: number;
+  quizDocuments: number;
   qualified: boolean;
   hasActivity: boolean;
 };
@@ -129,6 +153,10 @@ const createEmptyDay = (date: Date): DailyLearningStat => ({
   wordsSaved: 0,
   xp: 0,
   minutes: 0,
+  activeSeconds: 0,
+  fullListeningDocuments: 0,
+  flashcardDocuments: 0,
+  quizDocuments: 0,
   qualified: false,
   hasActivity: false,
 });
@@ -165,6 +193,7 @@ export function buildLearningAnalytics({
   vocabularyCount = 0,
   completedDocumentCount = 0,
   now = new Date(),
+  dailyGoals = DEFAULT_DAILY_GOALS,
 }: {
   events: LearningEvent[];
   sessions: LearningSession[];
@@ -173,12 +202,25 @@ export function buildLearningAnalytics({
   vocabularyCount?: number;
   completedDocumentCount?: number;
   now?: Date;
+  dailyGoals?: DailyGoalSettings;
 }): LearningAnalyticsSnapshot {
-  const dayMap = new Map<string, DailyLearningStat & { sentenceKeys: Set<string> }>();
+  const goals = normalizeDailyGoals(dailyGoals);
+  const dayMap = new Map<string, DailyLearningStat & {
+    sentenceKeys: Set<string>;
+    fullListeningDocumentKeys: Set<string>;
+    flashcardDocumentKeys: Set<string>;
+    quizDocumentKeys: Set<string>;
+  }>();
   const getDay = (key: string) => {
     const existing = dayMap.get(key);
     if (existing) return existing;
-    const created = { ...createEmptyDay(dateFromKey(key)), sentenceKeys: new Set<string>() };
+    const created = {
+      ...createEmptyDay(dateFromKey(key)),
+      sentenceKeys: new Set<string>(),
+      fullListeningDocumentKeys: new Set<string>(),
+      flashcardDocumentKeys: new Set<string>(),
+      quizDocumentKeys: new Set<string>(),
+    };
     dayMap.set(key, created);
     return created;
   };
@@ -194,8 +236,12 @@ export function buildLearningAnalytics({
       if (event.is_correct) day.correctAnswers += 1;
     }
     if (event.event_type === "sentence_studied") {
-      const sentenceKey = `${event.document_id ?? "none"}:${event.sentence_id ?? "none"}`;
-      day.sentenceKeys.add(sentenceKey);
+      if (event.metadata?.activity === "full_listening_completed") {
+        if (event.document_id) day.fullListeningDocumentKeys.add(event.document_id);
+      } else if (event.sentence_id !== null && event.sentence_id !== undefined) {
+        const sentenceKey = `${event.document_id ?? "none"}:${event.sentence_id}`;
+        day.sentenceKeys.add(sentenceKey);
+      }
     }
     if (event.event_type === "word_saved") day.wordsSaved += 1;
   }
@@ -209,16 +255,41 @@ export function buildLearningAnalytics({
     // A quiz-only session is counted only on a day that has at least one actual quiz answer.
     if (session.view === "quiz" && day.quizAnswers === 0) continue;
     if (seconds > 0) day.hasActivity = true;
+    day.activeSeconds += seconds;
     day.minutes += seconds / 60;
+  }
+
+  for (const attempt of quizAttempts) {
+    const date = new Date(attempt.created_at);
+    if (Number.isNaN(date.getTime())) continue;
+    const day = getDay(localDateKey(date));
+    if (!attempt.document_id) continue;
+    day.hasActivity = true;
+    if (attempt.mode === "flashcard") day.flashcardDocumentKeys.add(attempt.document_id);
+    else day.quizDocumentKeys.add(attempt.document_id);
   }
 
   for (const day of dayMap.values()) {
     day.sentencesStudied = day.sentenceKeys.size;
+    day.fullListeningDocuments = day.fullListeningDocumentKeys.size;
+    day.flashcardDocuments = day.flashcardDocumentKeys.size;
+    day.quizDocuments = day.quizDocumentKeys.size;
     day.accuracy = percent(day.correctAnswers, day.quizAnswers);
-    day.qualified = day.quizAnswers >= 5 || day.sentencesStudied >= 5;
+    const goalChecks = [
+      goals.fullListeningDocuments <= 0 || day.fullListeningDocuments >= goals.fullListeningDocuments,
+      goals.flashcardDocuments <= 0 || day.flashcardDocuments >= goals.flashcardDocuments,
+      goals.quizDocuments <= 0 || day.quizDocuments >= goals.quizDocuments,
+    ];
+    day.qualified = day.hasActivity && goalChecks.every(Boolean);
   }
 
-  const allDays = [...dayMap.values()].map(({ sentenceKeys: _sentenceKeys, ...day }) => ({ ...day, minutes: Math.round(day.minutes) }));
+  const allDays = [...dayMap.values()].map(({
+    sentenceKeys: _sentenceKeys,
+    fullListeningDocumentKeys: _fullListeningDocumentKeys,
+    flashcardDocumentKeys: _flashcardDocumentKeys,
+    quizDocumentKeys: _quizDocumentKeys,
+    ...day
+  }) => ({ ...day, minutes: Math.round(day.minutes), activeSeconds: Math.round(day.activeSeconds) }));
   const qualifiedKeys = new Set(allDays.filter((day) => day.qualified).map((day) => day.dateKey));
   const todayKey = localDateKey(now);
   let cursor = qualifiedKeys.has(todayKey) ? new Date(now) : addDays(new Date(now), -1);
@@ -274,7 +345,7 @@ export function buildLearningAnalytics({
     quizAnswers: quizEvents.length,
     correctAnswers: quizEvents.filter((event) => event.is_correct).length,
     accuracy: percent(quizEvents.filter((event) => event.is_correct).length, quizEvents.length),
-    sentencesStudied: events.filter((event) => event.event_type === "sentence_studied").length,
+    sentencesStudied: events.filter((event) => event.event_type === "sentence_studied" && event.sentence_id !== null && event.sentence_id !== undefined).length,
     wordsSaved: Math.max(vocabularyCount, events.filter((event) => event.event_type === "word_saved").length),
     documentsCompleted: Math.max(completedDocumentCount, new Set(events.filter((event) => event.event_type === "document_completed").map((event) => event.document_id).filter(Boolean)).size),
     minutes: sessions.reduce((sum, session) => sum + Math.round(Math.max(0, session.active_seconds ?? 0) / 60), 0),

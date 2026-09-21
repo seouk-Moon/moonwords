@@ -61,7 +61,7 @@ export const recognizePdfWithOcr = async (
 
   try {
     const tesseract = await import("tesseract.js");
-    worker = await tesseract.createWorker("eng", tesseract.OEM.LSTM_ONLY, {
+    worker = await tesseract.createWorker(["eng", "kor"], tesseract.OEM.LSTM_ONLY, {
       logger: (message) => {
         const recognizing = message.status === "recognizing text" && activePage > 0;
         onProgress?.({

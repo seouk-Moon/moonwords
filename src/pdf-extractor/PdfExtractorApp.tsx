@@ -91,7 +91,7 @@ export function PdfExtractorApp() {
       if (extracted.ocrPageLimitReached) {
         setNotice(`스캔 OCR로 앞 ${extracted.ocrPagesProcessed ?? 30}페이지를 읽었습니다. 브라우저 보호를 위해 나머지 페이지는 제외했습니다.`);
       } else if (extracted.ocrUsed) {
-        setNotice("PDF에 글자 정보가 부족해 화질을 보정한 뒤 영어 OCR로 추출했습니다. 결과를 한 번 확인해 주세요.");
+        setNotice("PDF에 글자 정보가 부족해 화질을 보정한 뒤 영어·한국어 OCR로 추출했습니다. 결과를 한 번 확인해 주세요.");
       } else if (extracted.text.length >= MAX_DOCUMENT_TEXT_LENGTH) {
         setNotice("추출을 완료했습니다. Moonwords 학습 한도에 맞춰 앞 120,000자까지 표시합니다.");
       } else {
@@ -174,8 +174,8 @@ export function PdfExtractorApp() {
         <section className="pdf-tool-hero">
           <div>
             <span className="pdf-tool-eyebrow">FREE PDF TOOL · BROWSER ONLY</span>
-            <h1>PDF에서 영어 텍스트를<br />깔끔하게 꺼내세요.</h1>
-            <p>파일은 서버에 저장하지 않고 이 브라우저 안에서만 읽습니다. 일반 추출이 어려운 흐린 스캔본은 화질을 보정한 뒤 영어 OCR로 자동 전환합니다.</p>
+            <h1>PDF에서 영어·한국어 텍스트를<br />깔끔하게 꺼내세요.</h1>
+            <p>파일은 서버에 저장하지 않고 이 브라우저 안에서만 읽습니다. 일반 추출이 어려운 흐린 스캔본은 화질을 보정한 뒤 영어·한국어 OCR로 자동 전환합니다.</p>
           </div>
           <div className="pdf-tool-hero-mark"><PdfDocumentIcon /><span>PDF</span><b>→</b><span>TEXT</span></div>
         </section>
@@ -245,7 +245,7 @@ export function PdfExtractorApp() {
 
         <aside className="pdf-tool-note">
           <b>알아두세요</b>
-          <p>스캔 PDF는 영어 OCR로 최대 30페이지까지 읽습니다. 흐림·기울어짐·손글씨가 심하면 오탈자가 생길 수 있으니 결과를 확인해 주세요. 첫 OCR 실행 때 인식 엔진을 내려받기 위한 인터넷 연결이 필요하며, 암호로 잠긴 PDF는 열 수 없습니다.</p>
+          <p>스캔 PDF는 영어·한국어 OCR로 최대 30페이지까지 읽습니다. 흐림·기울어짐·손글씨가 심하면 오탈자가 생길 수 있으니 결과를 확인해 주세요. 첫 OCR 실행 때 인식 엔진을 내려받기 위한 인터넷 연결이 필요하며, 암호로 잠긴 PDF는 열 수 없습니다.</p>
         </aside>
       </main>
 

@@ -1,3 +1,4 @@
+import { useState } from "react";
 import type { InfoPage } from "../../components/layout/SiteFooter";
 
 const effectiveDate = "2026년 8월 23일";
@@ -18,12 +19,19 @@ export function LegalPage({ page, onBack }: { page: InfoPage; onBack: () => void
 }
 
 function Service() {
-  return <article className="legal-card service-info-card">
-    <section><h2>본문 학습</h2><p>PDF, DOCX, TXT 또는 직접 입력한 영어 본문을 문장별로 읽고 번역, 듣기, 이해 체크, 어려운 문장 체크를 사용할 수 있습니다. 필요할 때는 학습 화면 위에서 원래 업로드한 원문도 함께 확인할 수 있습니다.</p></section>
-    <section><h2>단어장</h2><p>본문에서 모르는 단어를 선택해 뜻을 확인하고 저장할 수 있으며, 저장한 단어를 복습하고 최근 퀴즈 결과를 바탕으로 학습 상태를 확인할 수 있습니다.</p></section>
-    <section><h2>퀴즈</h2><p>단어 뜻, 빈칸, 어순 배열, 독해 문제 등 여러 방식으로 본문을 복습할 수 있습니다. 기존 본문 학습 메뉴를 유지하면서 언제든 다른 메뉴로 이동할 수 있습니다.</p></section>
-    <section><h2>학습 기록</h2><p>연속 학습일, 정답률, 문제 풀이 수, 학습 시간과 최근 활동 기록은 로그인 후 상단 프로필 버튼에서 확인할 수 있습니다.</p></section>
-    <section><h2>프로필</h2><p>가입 시 본명, 닉네임과 성별을 설정할 수 있고, 로그인 후 프로필 화면에서 정보를 수정하거나 프로필 사진을 등록할 수 있습니다.</p></section>
+  return <article className="legal-card service-info-card external-service-list">
+    <section>
+      <span className="service-product-tag">MOON · TEXT</span>
+      <h2>텍스트 추출</h2>
+      <p>PDF의 텍스트를 바로 추출하고, 글자 레이어가 없는 스캔본은 영어·한국어 OCR로 읽을 수 있습니다.</p>
+      <a className="contact-primary" href="./pdf-extractor.html">텍스트 추출 열기 →</a>
+    </section>
+    <section>
+      <span className="service-product-tag">MOON · WORKSHEET</span>
+      <h2>학습지 만들기 · Printmaker</h2>
+      <p>문항과 활동을 구성해 인쇄용 학습지를 만들 수 있는 별도 학습 도구입니다.</p>
+      <a className="contact-primary" href="https://seouk-moon.github.io/printmaker/" target="_blank" rel="noreferrer">학습지 만들기 열기 ↗</a>
+    </section>
   </article>;
 }
 
@@ -55,9 +63,35 @@ function Privacy() {
 }
 
 function Contact() {
-  return <article className="legal-card contact-card">
-    <section><h2>서비스 문의</h2><p>버그 제보, 기능 제안, 사용 중 불편한 점은 현재 MoonWords GitHub 저장소의 Issues에서 받을 수 있습니다.</p><a className="contact-primary" href="https://github.com/seouk-Moon/moonwords/issues" target="_blank" rel="noreferrer">GitHub Issues 열기 →</a></section>
-    <section><h2>문의할 때 적어주면 좋은 내용</h2><p>사용 중인 기능, 문제가 발생한 순서, 예상한 동작과 실제 동작, 가능하다면 오류 화면을 함께 알려주면 확인에 도움이 됩니다.</p></section>
-    <section className="contact-warning"><h2>개인정보 주의</h2><p>GitHub Issues는 공개 공간일 수 있습니다. 비밀번호, API 키, 계정 인증 정보, 개인 문서 원문 등 민감한 정보는 절대 게시하지 마세요. 계정 삭제나 개인정보 관련 전용 연락처는 정식 공개 전에 별도로 추가하는 것이 좋습니다.</p></section>
+  const [category, setCategory] = useState("버그 제보");
+  const [title, setTitle] = useState("");
+  const [detail, setDetail] = useState("");
+
+  const openInquiry = () => {
+    const issueTitle = `[${category}] ${title.trim() || "MoonWords 문의"}`;
+    const body = [
+      `문의 종류: ${category}`,
+      "",
+      "문의 내용:",
+      detail.trim() || "여기에 문의 내용을 적어 주세요.",
+      "",
+      "※ 비밀번호, API 키, 개인 문서 원문 등 민감한 정보는 적지 마세요.",
+    ].join("\n");
+    window.open(`https://github.com/seouk-Moon/moonwords/issues/new?title=${encodeURIComponent(issueTitle)}&body=${encodeURIComponent(body)}`, "_blank", "noopener,noreferrer");
+  };
+
+  return <article className="legal-card contact-card easy-contact-card">
+    <section>
+      <h2>간단 문의</h2>
+      <p>GitHub의 ‘New issue’를 직접 찾을 필요가 없어요. 아래에 적고 버튼을 누르면 제목과 내용이 채워진 문의 화면이 열립니다. GitHub 로그인이 필요할 수 있으며, 열린 화면에서는 마지막으로 제출 버튼만 누르면 됩니다.</p>
+      <div className="contact-form-grid">
+        <label><span>문의 종류</span><select value={category} onChange={(event) => setCategory(event.target.value)}><option>버그 제보</option><option>기능 제안</option><option>사용 문의</option><option>기타</option></select></label>
+        <label><span>한 줄 제목</span><input value={title} maxLength={120} onChange={(event) => setTitle(event.target.value)} placeholder="예: 학습시간이 올라가지 않아요" /></label>
+        <label className="contact-detail-field"><span>내용</span><textarea value={detail} maxLength={3000} onChange={(event) => setDetail(event.target.value)} placeholder="어떤 화면에서 무엇을 했을 때 문제가 생겼는지 편하게 적어 주세요." /></label>
+      </div>
+      <button type="button" className="contact-primary contact-submit-button" onClick={openInquiry}>문의 화면 열기 →</button>
+    </section>
+    <section><h2>잘 적는 법</h2><p>‘어느 화면인지 → 무엇을 눌렀는지 → 실제로 어떻게 되었는지’만 적어도 충분합니다. 오류 화면이 있으면 열린 GitHub 문의 화면에 이미지를 드래그해 붙일 수 있습니다.</p></section>
+    <section className="contact-warning"><h2>개인정보 주의</h2><p>GitHub 문의는 공개될 수 있습니다. 비밀번호, API 키, 인증 정보, 개인 문서 원문, 개인정보는 게시하지 마세요.</p></section>
   </article>;
 }
