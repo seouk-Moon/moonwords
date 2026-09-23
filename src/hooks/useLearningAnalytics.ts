@@ -71,7 +71,7 @@ export function useLearningAnalytics({
       }
     });
     return () => { cancelled = true; };
-  }, [session]);
+  }, [session?.user.id]);
 
   const updateDailyGoals = useCallback((next: DailyGoalSettings) => {
     const normalized = normalizeDailyGoals(next);
@@ -246,7 +246,7 @@ export function useLearningAnalytics({
       window.removeEventListener("pagehide", onPageHide);
       sync(true);
     };
-  }, [current?.id, view, session]);
+  }, [current?.id, view, session?.user.id]);
 
   const snapshot = useMemo(
     () => buildLearningAnalytics({ events, sessions, quizAttempts, storageReady, vocabularyCount, completedDocumentCount: completedDocumentIds.length, dailyGoals }),

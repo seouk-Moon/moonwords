@@ -56,7 +56,7 @@ function Privacy() {
     <section><h2>3. 외부 서비스 이용</h2><p>MoonWords는 인증과 데이터 저장을 위해 Supabase를 사용하며, AI 분석이나 문제 생성 기능을 사용할 때에는 서버 측 기능을 통해 Google Gemini 계열 AI 서비스로 필요한 본문 일부가 전달될 수 있습니다. 외부 서비스의 처리는 각 제공자의 정책과 계약 조건의 적용을 받을 수 있습니다.</p></section>
     <section><h2>4. 보관과 삭제</h2><p>계정 및 학습 데이터는 서비스 제공에 필요한 기간 동안 보관하며, 사용자가 데이터를 직접 삭제하거나 계정·데이터 삭제를 요청하는 경우 관련 법령상 보관 의무가 없는 범위에서 삭제할 수 있습니다. 백업 또는 장애 복구용 사본은 제한된 기간 동안 남을 수 있습니다.</p></section>
     <section><h2>5. 사용자의 선택과 권리</h2><p>사용자는 서비스에서 본문, 단어 및 일부 학습 정보를 관리할 수 있으며, 자신의 정보에 대한 확인·정정·삭제 관련 문의를 할 수 있습니다. 민감한 개인정보는 공개 GitHub 이슈에 작성하지 마세요.</p></section>
-    <section><h2>6. 보안</h2><p>MoonWords는 브라우저에 비밀 AI API 키를 노출하지 않도록 서버 측 처리 구조를 사용하고, 인증된 사용자별 데이터 접근 제어 등 합리적인 보호 조치를 적용하도록 설계되어 있습니다.</p></section>
+    <section><h2>6. 보안</h2><p>MoonWords는 인증된 사용자별 데이터 접근 제어 등 합리적인 보호 조치를 적용하도록 설계되어 있습니다.</p></section>
     <section><h2>7. 방침 변경</h2><p>수집 항목이나 외부 처리 구조가 바뀌면 이 방침을 갱신할 수 있습니다. 중요한 변경은 서비스 화면 등을 통해 안내하도록 노력합니다.</p></section>
     <section><h2>8. 문의</h2><p>개인정보와 관련한 문의는 문의하기 페이지의 운영 채널을 확인해 주세요. 정식 서비스 공개 전에는 실제 운영자 연락처와 필요한 사업자 정보를 추가로 확인하는 것을 권장합니다.</p></section>
   </article>;
@@ -75,15 +75,12 @@ function Contact() {
       "문의 내용:",
       detail.trim() || "여기에 문의 내용을 적어 주세요.",
       "",
-      "※ 비밀번호, API 키, 개인 문서 원문 등 민감한 정보는 적지 마세요.",
     ].join("\n");
     window.open(`https://github.com/seouk-Moon/moonwords/issues/new?title=${encodeURIComponent(issueTitle)}&body=${encodeURIComponent(body)}`, "_blank", "noopener,noreferrer");
   };
 
   return <article className="legal-card contact-card easy-contact-card">
     <section>
-      <h2>간단 문의</h2>
-      <p>GitHub의 ‘New issue’를 직접 찾을 필요가 없어요. 아래에 적고 버튼을 누르면 제목과 내용이 채워진 문의 화면이 열립니다. GitHub 로그인이 필요할 수 있으며, 열린 화면에서는 마지막으로 제출 버튼만 누르면 됩니다.</p>
       <div className="contact-form-grid">
         <label><span>문의 종류</span><select value={category} onChange={(event) => setCategory(event.target.value)}><option>버그 제보</option><option>기능 제안</option><option>사용 문의</option><option>기타</option></select></label>
         <label><span>한 줄 제목</span><input value={title} maxLength={120} onChange={(event) => setTitle(event.target.value)} placeholder="예: 학습시간이 올라가지 않아요" /></label>
@@ -91,7 +88,5 @@ function Contact() {
       </div>
       <button type="button" className="contact-primary contact-submit-button" onClick={openInquiry}>문의 화면 열기 →</button>
     </section>
-    <section><h2>잘 적는 법</h2><p>‘어느 화면인지 → 무엇을 눌렀는지 → 실제로 어떻게 되었는지’만 적어도 충분합니다. 오류 화면이 있으면 열린 GitHub 문의 화면에 이미지를 드래그해 붙일 수 있습니다.</p></section>
-    <section className="contact-warning"><h2>개인정보 주의</h2><p>GitHub 문의는 공개될 수 있습니다. 비밀번호, API 키, 인증 정보, 개인 문서 원문, 개인정보는 게시하지 마세요.</p></section>
   </article>;
 }

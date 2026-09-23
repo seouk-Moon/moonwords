@@ -87,6 +87,26 @@ export default function App({ supabaseUrl, supabasePublishableKey }: AppProps = 
     workspace.setView("upload");
   };
 
+  const openSentenceFromMoon = (sentenceNumber: number) => {
+    if (!workspace.current || !Number.isFinite(sentenceNumber) || sentenceNumber < 1) return;
+    setInfoPage(null);
+    workspace.setView("study");
+    let attempts = 0;
+    const reveal = () => {
+      const element = document.querySelector<HTMLElement>(`[data-sentence-index="${sentenceNumber - 1}"]`);
+      if (!element && attempts < 8) {
+        attempts += 1;
+        window.setTimeout(reveal, 80);
+        return;
+      }
+      if (!element) return;
+      element.scrollIntoView({ behavior: "smooth", block: "center" });
+      element.classList.add("sentence-jump-highlight");
+      window.setTimeout(() => element.classList.remove("sentence-jump-highlight"), 1800);
+    };
+    window.setTimeout(reveal, 40);
+  };
+
   if (workspace.loading) {
     return <div className="loading-screen"><Logo /><p>내 학습실을 여는 중…</p><SupportChatbot context={{ view: "loading", configured, signedIn: false }} /></div>;
   }
@@ -161,6 +181,8 @@ export default function App({ supabaseUrl, supabasePublishableKey }: AppProps = 
           onDeleteWord={workspace.deleteWord}
           onProgress={workspace.saveProgress}
           onRenameDocument={workspace.renameDocument}
+          onUpdateAnalysis={workspace.updateDocumentAnalysis}
+          onUpdateSentence={workspace.updateSentence}
           onFullListeningComplete={workspace.recordFullListeningCompleted}
         />
       )}
@@ -217,7 +239,7 @@ export default function App({ supabaseUrl, supabasePublishableKey }: AppProps = 
         documentTitle: workspace.current?.title,
         sentenceCount: workspace.current?.analysis.sentences.length,
         documentSentences: workspace.current?.analysis.sentences,
-      }} />
+      }} onOpenSentence={openSentenceFromMoon} />
 
       <SiteFooter onOpen={setInfoPage} />
     </div>

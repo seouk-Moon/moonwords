@@ -111,8 +111,8 @@ export type LearningAnalyticsSnapshot = {
 };
 
 const quizModeLabels: Record<QuizMode, string> = {
-  comprehension: "본문 이해",
-  meaning: "단어 뜻",
+  comprehension: "본문 내용 퀴즈",
+  meaning: "단어 퀴즈",
   flashcard: "플래시카드",
   cloze: "빈칸 완성",
   ordering: "어순 배열",

@@ -47,13 +47,6 @@ export function LearningDashboard({
 
   return (
     <section className="growth-dashboard simplified-learning-dashboard" aria-label="학습 목표와 연속 학습 기록">
-      {!analytics.storageReady && (
-        <div className="analytics-setup-warning">
-          <b>학습 기록 저장 설정이 아직 연결되지 않았어요.</b>
-          <span>SUPABASE_LEARNING_SETUP.sql을 적용하면 학습 기록을 계정에 계속 누적할 수 있어요.</span>
-        </div>
-      )}
-
       <div className="simple-learning-overview">
         <article className="mission-card">
           <header>

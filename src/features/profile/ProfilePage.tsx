@@ -19,6 +19,29 @@ const initials = (nickname: string, fullName: string, email?: string) => {
   return source.slice(0, 2).toUpperCase();
 };
 
+const cropAvatar = (file: File, x: number, y: number, zoom: number) => new Promise<Blob>((resolve, reject) => {
+  const image = new Image();
+  const url = URL.createObjectURL(file);
+  image.onload = () => {
+    const size = 512;
+    const canvas = document.createElement("canvas");
+    canvas.width = size;
+    canvas.height = size;
+    const context = canvas.getContext("2d");
+    if (!context) { URL.revokeObjectURL(url); reject(new Error("사진을 편집하지 못했습니다.")); return; }
+    const scale = Math.max(size / image.naturalWidth, size / image.naturalHeight) * zoom;
+    const width = image.naturalWidth * scale;
+    const height = image.naturalHeight * scale;
+    const offsetX = -(width - size) * (x / 100);
+    const offsetY = -(height - size) * (y / 100);
+    context.drawImage(image, offsetX, offsetY, width, height);
+    URL.revokeObjectURL(url);
+    canvas.toBlob((blob) => blob ? resolve(blob) : reject(new Error("사진을 저장할 수 없습니다.")), "image/jpeg", 0.9);
+  };
+  image.onerror = () => { URL.revokeObjectURL(url); reject(new Error("사진을 읽지 못했습니다.")); };
+  image.src = url;
+});
+
 export function ProfilePage({ session, analytics, goals, onGoalsChange, onBack }: Props) {
   const metadata = session.user.user_metadata ?? {};
   const [fullName, setFullName] = useState(String(metadata.full_name ?? ""));
@@ -30,6 +53,14 @@ export function ProfilePage({ session, analytics, goals, onGoalsChange, onBack }
   const [signingOutEverywhere, setSigningOutEverywhere] = useState(false);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
+  const [securityEmail, setSecurityEmail] = useState(session.user.email ?? "");
+  const [newPassword, setNewPassword] = useState("");
+  const [securitySaving, setSecuritySaving] = useState(false);
+  const [avatarFile, setAvatarFile] = useState<File | null>(null);
+  const [avatarPreview, setAvatarPreview] = useState("");
+  const [cropX, setCropX] = useState(50);
+  const [cropY, setCropY] = useState(50);
+  const [cropZoom, setCropZoom] = useState(1);
 
   useEffect(() => {
     const next = session.user.user_metadata ?? {};
@@ -37,7 +68,10 @@ export function ProfilePage({ session, analytics, goals, onGoalsChange, onBack }
     setNickname(String(next.nickname ?? ""));
     setGender((next.gender as GenderValue | undefined) ?? "");
     setAvatarUrl(String(next.avatar_url ?? ""));
+    setSecurityEmail(session.user.email ?? "");
   }, [session.user]);
+
+  useEffect(() => () => { if (avatarPreview) URL.revokeObjectURL(avatarPreview); }, [avatarPreview]);
 
   const displayName = useMemo(
     () => nickname.trim() || fullName.trim() || session.user.email?.split("@")[0] || "MoonWords 사용자",
@@ -107,30 +141,21 @@ export function ProfilePage({ session, analytics, goals, onGoalsChange, onBack }
     }
   };
 
-  const uploadAvatar = async (file: File) => {
+  const uploadAvatar = async (file: Blob) => {
     if (!supabase) return;
-    if (!file.type.startsWith("image/")) {
-      setError("이미지 파일을 선택해 주세요.");
-      return;
-    }
-    if (file.size > 5 * 1024 * 1024) {
-      setError("프로필 사진은 5MB 이하로 올려 주세요.");
-      return;
-    }
-
     setUploading(true);
     setError("");
     setMessage("");
     const path = `${session.user.id}/avatar`;
     const uploadResult = await supabase.storage.from("avatars").upload(path, file, {
       cacheControl: "3600",
-      contentType: file.type,
+      contentType: "image/jpeg",
       upsert: true,
     });
     if (uploadResult.error) {
       setUploading(false);
       setError(uploadResult.error.message.includes("Bucket not found")
-        ? "프로필 사진 저장소가 아직 없어요. ZIP의 SUPABASE_PROFILE_SETUP.sql을 Supabase SQL Editor에서 한 번 실행해 주세요."
+        ? "프로필 사진을 저장할 수 없어요. 잠시 뒤 다시 시도해 주세요."
         : uploadResult.error.message);
       return;
     }
@@ -153,6 +178,46 @@ export function ProfilePage({ session, analytics, goals, onGoalsChange, onBack }
     setMessage("프로필 사진을 바꿨어요.");
   };
 
+  const chooseAvatar = (file: File) => {
+    if (!file.type.startsWith("image/")) { setError("이미지 파일을 선택해 주세요."); return; }
+    if (file.size > 5 * 1024 * 1024) { setError("프로필 사진은 5MB 이하로 올려 주세요."); return; }
+    if (avatarPreview) URL.revokeObjectURL(avatarPreview);
+    setAvatarFile(file);
+    setAvatarPreview(URL.createObjectURL(file));
+    setCropX(50); setCropY(50); setCropZoom(1); setError("");
+  };
+
+  const saveCroppedAvatar = async () => {
+    if (!avatarFile) return;
+    try {
+      const blob = await cropAvatar(avatarFile, cropX, cropY, cropZoom);
+      await uploadAvatar(blob);
+      if (avatarPreview) URL.revokeObjectURL(avatarPreview);
+      setAvatarPreview("");
+      setAvatarFile(null);
+    } catch (cropError) {
+      setError(cropError instanceof Error ? cropError.message : "사진을 편집하지 못했습니다.");
+    }
+  };
+
+  const updateEmail = async () => {
+    if (!supabase || !securityEmail.trim()) return;
+    setSecuritySaving(true); setError(""); setMessage("");
+    const { error: updateError } = await supabase.auth.updateUser({ email: securityEmail.trim() });
+    setSecuritySaving(false);
+    if (updateError) setError(updateError.message);
+    else setMessage("이메일 변경 요청을 저장했어요. 확인 메일이 오면 안내에 따라 완료해 주세요.");
+  };
+
+  const updatePassword = async () => {
+    if (!supabase || newPassword.length < 8) { setError("새 비밀번호는 8자 이상 입력해 주세요."); return; }
+    setSecuritySaving(true); setError(""); setMessage("");
+    const { error: updateError } = await supabase.auth.updateUser({ password: newPassword });
+    setSecuritySaving(false);
+    if (updateError) setError(updateError.message);
+    else { setNewPassword(""); setMessage("비밀번호를 변경했어요."); }
+  };
+
   return (
     <main className="profile-page">
       <section className="profile-heading">
@@ -166,27 +231,15 @@ export function ProfilePage({ session, analytics, goals, onGoalsChange, onBack }
 
       <section className="profile-card-grid">
         <article className="profile-card profile-identity-card">
-          <div className="profile-avatar-large" aria-label={`${displayName} 프로필 사진`}>
-            {avatarUrl ? <img src={avatarUrl} alt="프로필" /> : <span>{initials(nickname, fullName, session.user.email)}</span>}
-          </div>
+          <label className="profile-avatar-picker" aria-label={`${displayName} 프로필 사진 변경`}>
+            <span className="profile-avatar-large">{avatarUrl ? <img src={avatarUrl} alt="프로필" /> : <span>{initials(nickname, fullName, session.user.email)}</span>}<i>사진 변경</i></span>
+            <input type="file" accept="image/*" disabled={uploading} onChange={(event) => { const file = event.target.files?.[0]; if (file) chooseAvatar(file); event.currentTarget.value = ""; }} />
+          </label>
           <div className="profile-identity-copy">
             <span className="section-kicker">ACCOUNT</span>
             <h2>{displayName}</h2>
             <p>{session.user.email}</p>
-            <label className="avatar-upload-button">
-              {uploading ? "사진 올리는 중…" : "프로필 사진 변경"}
-              <input
-                type="file"
-                accept="image/*"
-                disabled={uploading}
-                onChange={(event) => {
-                  const file = event.target.files?.[0];
-                  if (file) void uploadAvatar(file);
-                  event.currentTarget.value = "";
-                }}
-              />
-            </label>
-            <small>JPG, PNG 등 이미지 · 최대 5MB</small>
+            <small>사진을 누르면 표시할 위치를 직접 고를 수 있어요.</small>
           </div>
         </article>
 
@@ -205,7 +258,6 @@ export function ProfilePage({ session, analytics, goals, onGoalsChange, onBack }
                 <option value="prefer_not_to_say">밝히고 싶지 않음</option>
               </select>
             </label>
-            <label>이메일<input value={session.user.email ?? ""} disabled /></label>
           </div>
           {error && <p className="profile-form-error">{error}</p>}
           {message && <p className="profile-form-message">{message}</p>}
@@ -213,20 +265,13 @@ export function ProfilePage({ session, analytics, goals, onGoalsChange, onBack }
             {saving ? "저장 중…" : "프로필 저장"}
           </button>
 
-          <div className="profile-security-block">
-            <div>
-              <span className="section-kicker">SECURITY</span>
-              <b>모든 기기에서 로그아웃</b>
-              <p>공유했던 로그인 링크나 다른 기기에 남아 있는 세션까지 한 번에 종료합니다. 이 기기에서도 다시 로그인해야 해요.</p>
+          <div className="profile-security-block account-security-editor">
+            <div className="security-editor-copy"><span className="section-kicker">SECURITY</span><b>계정 보안</b></div>
+            <div className="security-editor-fields">
+              <label>이메일<input type="email" value={securityEmail} onChange={(event) => setSecurityEmail(event.target.value)} /><button type="button" disabled={securitySaving || securityEmail.trim() === (session.user.email ?? "")} onClick={() => void updateEmail()}>이메일 변경</button></label>
+              <label>새 비밀번호<input type="password" minLength={8} value={newPassword} onChange={(event) => setNewPassword(event.target.value)} placeholder="8자 이상" /><button type="button" disabled={securitySaving || newPassword.length < 8} onClick={() => void updatePassword()}>비밀번호 변경</button></label>
             </div>
-            <button
-              className="profile-global-signout-button"
-              type="button"
-              disabled={signingOutEverywhere}
-              onClick={() => void signOutEverywhere()}
-            >
-              {signingOutEverywhere ? "로그아웃 중…" : "모든 기기 로그아웃"}
-            </button>
+            <button className="profile-global-signout-button" type="button" disabled={signingOutEverywhere} onClick={() => void signOutEverywhere()}>{signingOutEverywhere ? "로그아웃 중…" : "모든 기기 로그아웃"}</button>
           </div>
         </article>
       </section>
@@ -235,10 +280,20 @@ export function ProfilePage({ session, analytics, goals, onGoalsChange, onBack }
         <div>
           <span className="eyebrow">LEARNING RECORD</span>
           <h2>내 학습 현황</h2>
-          <p>첫 화면 대신 프로필에서 필요할 때만 확인할 수 있어요.</p>
         </div>
       </section>
       <LearningDashboard analytics={analytics} goals={goals} onGoalsChange={onGoalsChange} />
+      {avatarPreview && <>
+        <button className="avatar-crop-backdrop" aria-label="사진 편집 닫기" onClick={() => { URL.revokeObjectURL(avatarPreview); setAvatarPreview(""); setAvatarFile(null); }} />
+        <section className="avatar-crop-modal" role="dialog" aria-modal="true" aria-label="프로필 사진 위치 선택">
+          <header><div><span className="section-kicker">PROFILE PHOTO</span><h2>사진 위치 선택</h2></div><button type="button" onClick={() => { URL.revokeObjectURL(avatarPreview); setAvatarPreview(""); setAvatarFile(null); }}>×</button></header>
+          <div className="avatar-crop-preview"><img src={avatarPreview} alt="프로필 사진 미리보기" style={{ objectPosition: `${cropX}% ${cropY}%`, transform: `scale(${cropZoom})` }} /></div>
+          <label>좌우 위치<input type="range" min="0" max="100" value={cropX} onChange={(event) => setCropX(Number(event.target.value))} /></label>
+          <label>위아래 위치<input type="range" min="0" max="100" value={cropY} onChange={(event) => setCropY(Number(event.target.value))} /></label>
+          <label>확대<input type="range" min="1" max="2.5" step="0.05" value={cropZoom} onChange={(event) => setCropZoom(Number(event.target.value))} /></label>
+          <button type="button" className="primary-button" disabled={uploading} onClick={() => void saveCroppedAvatar()}>{uploading ? "저장 중…" : "이 위치로 저장"}</button>
+        </section>
+      </>}
     </main>
   );
 }

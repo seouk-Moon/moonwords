@@ -32,10 +32,9 @@ const supportQuickTopics = [
   "학습시간·오늘 목표",
   "최근 학습 날짜",
   "챕터별 듣기",
-  "PDF·OCR 한글",
+  "PDF·OCR",
   "문의하는 방법",
   "문장 수가 안 맞아요",
-  "Gemini 503 오류",
 ];
 
 const documentQuickTopics = [
@@ -119,7 +118,7 @@ export function getSupportReply(question: string, context: SupportContext): Supp
 
   if (includesAny(normalized, ["문장 수", "문장수", "개수", "번호", "누락", "안 보여", "안보여", "59", "29", "멈춰"])) {
     return {
-      text: `${currentDocument}문장 번호가 중간에서 끝나거나 상단 개수보다 적게 보이던 문제를 보정했습니다. 이제 AI가 번호를 반복하거나 잘못된 문단 번호를 주더라도 화면 번호는 1부터 전체 문장 수까지 이어지고, 모든 문장이 본문에 표시됩니다.\n\n배포 후 이 페이지를 새로고침해 확인해 주세요.`,
+      text: `${currentDocument}본문에서는 문장 번호가 1번부터 끝까지 이어지도록 표시됩니다. 번호가 이상하게 보이면 페이지를 새로고침한 뒤 다시 확인해 주세요.`,
     };
   }
 
@@ -143,7 +142,7 @@ export function getSupportReply(question: string, context: SupportContext): Supp
 
   if (includesAny(normalized, ["문의", "제보", "issue", "issues", "new issue", "newissue", "깃허브 문의"])) {
     return {
-      text: "화면 아래 ‘문의하기’에서 문의 종류·제목·내용만 적고 ‘문의 화면 열기’를 누르세요. GitHub 문의 화면에 내용이 자동으로 채워집니다. GitHub 로그인이 필요할 수 있고, 비밀번호·API 키·개인 문서 원문은 적지 마세요.",
+      text: "화면 아래 ‘문의하기’에서 종류·제목·내용을 적고 ‘문의 화면 열기’를 누르면 됩니다.",
     };
   }
 
@@ -156,7 +155,7 @@ export function getSupportReply(question: string, context: SupportContext): Supp
 
   if (includesAny(normalized, ["503", "gemini", "제미나이", "혼잡", "서버 오류", "ai 오류", "요청 실패"])) {
     return {
-      text: "Gemini 503은 대개 모델 서버의 일시적인 혼잡 응답입니다. Moonwords는 같은 요청을 자동 재시도한 뒤 대체 모델도 순서대로 시도합니다.\n\n계속 실패하면 ① 잠시 뒤 다시 시도 ② Supabase Edge Function의 GEMINI_API_KEY 확인 ③ 수정된 process-document 함수를 다시 배포 순서로 확인해 주세요. 이미 만든 본문 데이터는 사라지지 않습니다.",
+      text: "일시적으로 AI 응답이 지연되거나 실패할 수 있어요. 잠시 뒤 같은 작업을 다시 시도해 주세요. 이미 저장된 본문과 학습 기록은 그대로 유지됩니다.",
     };
   }
 
@@ -168,7 +167,7 @@ export function getSupportReply(question: string, context: SupportContext): Supp
 
   if (includesAny(normalized, ["제목", "이름 바꾸", "폴더", "순서", "정렬", "이동"])) {
     return {
-      text: "본문 제목은 본문 학습 화면 위쪽의 ‘제목 변경’에서 수정할 수 있습니다. 폴더 순서는 내 본문 화면에서 이동 버튼으로 바꿀 수 있고, 문서는 원하는 폴더로 이동할 수 있습니다.\n\n폴더 순서 기능이 처음이라면 제공된 Supabase migration SQL을 한 번 적용해야 합니다.",
+      text: "본문 제목은 본문 학습 화면 위쪽의 ‘제목 변경’에서 수정할 수 있습니다. 폴더 순서는 내 본문 화면에서 이동 버튼으로 바꿀 수 있고, 문서는 원하는 폴더로 이동할 수 있습니다.",
     };
   }
 
@@ -205,7 +204,7 @@ export function getSupportReply(question: string, context: SupportContext): Supp
   }
 
   if (includesAny(normalized, ["현재", "상태", "어디", "화면", "진단"])) {
-    const configuration = context.configured ? "Supabase 연결 설정됨" : "데모 모드";
+    const configuration = context.configured ? "온라인 저장 사용 중" : "체험 모드";
     const account = context.signedIn ? "로그인됨" : "로그인 안 됨";
     const document = context.documentTitle
       ? `현재 본문: ${context.documentTitle} (${context.sentenceCount ?? 0}문장)`
@@ -214,11 +213,11 @@ export function getSupportReply(question: string, context: SupportContext): Supp
   }
 
   if (includesAny(normalized, ["안녕", "도움", "뭐 할", "사용법"])) {
-    return { text: "반가워요. 학습시간, 최근 학습 날짜, 챕터 듣기, PDF·OCR, 문의, 퀴즈 문제를 물어보세요." };
+    return { text: "반가워요. 학습시간, 최근 학습 날짜, 챕터 듣기, PDF·OCR, 문의, 퀴즈를 물어보세요." };
   }
 
   return {
-    text: `짧게 키워드만 적어도 괜찮아요. 예: ‘학습시간’, ‘최근 학습’, ‘챕터 듣기’, ‘OCR 한글’, ‘문의’, ‘퀴즈’. 현재 ${viewNames[context.view]} 화면 기준으로 가능한 해결 방법을 안내할게요. 오류 문구가 있으면 그대로 붙여 넣어 주세요.`,
+    text: `짧게 적어도 괜찮아요. 예: ‘학습시간’, ‘최근 학습’, ‘챕터 듣기’, ‘OCR’, ‘문의’, ‘퀴즈’. 현재 ${viewNames[context.view]} 화면에 맞춰 안내할게요.`,
   };
 }
 
@@ -236,8 +235,30 @@ const buildNumberedDocumentText = (sentences: SupportContext["documentSentences"
   .join("\n\n")
   .slice(0, 120_000);
 
-export function SupportChatbot({ context }: { context: SupportContext }) {
+const sentenceReferencePattern = /(\[?\s*\d{1,4}\s*번\s*문장\s*\]?)/g;
+
+function ChatText({ text, onOpenSentence }: { text: string; onOpenSentence?: (sentenceNumber: number) => void }) {
+  const blocks = text.split(/\n{2,}/).filter((block) => block.trim());
+  const renderInline = (line: string, keyPrefix: string) => line.split(sentenceReferencePattern).map((part, index) => {
+    const match = part.match(/(\d{1,4})\s*번\s*문장/);
+    if (!match || !onOpenSentence) return <span key={`${keyPrefix}-${index}`}>{part}</span>;
+    const sentenceNumber = Number(match[1]);
+    return <button type="button" className="support-sentence-link" key={`${keyPrefix}-${index}`} onClick={() => onOpenSentence(sentenceNumber)}>{part}</button>;
+  });
+
+  return <div className="support-message-content">{blocks.map((block, blockIndex) => {
+    const lines = block.split("\n").filter((line) => line.trim());
+    const listLike = lines.length > 1 && lines.every((line) => /^\s*(?:[-•]|\d+[.)])\s+/.test(line));
+    if (listLike) {
+      return <ul key={`block-${blockIndex}`}>{lines.map((line, lineIndex) => <li key={`line-${lineIndex}`}>{renderInline(line.replace(/^\s*(?:[-•]|\d+[.)])\s+/, ""), `${blockIndex}-${lineIndex}`)}</li>)}</ul>;
+    }
+    return <p key={`block-${blockIndex}`}>{lines.map((line, lineIndex) => <span className="support-text-line" key={`line-${lineIndex}`}>{renderInline(line, `${blockIndex}-${lineIndex}`)}</span>)}</p>;
+  })}</div>;
+}
+
+export function SupportChatbot({ context, onOpenSentence }: { context: SupportContext; onOpenSentence?: (sentenceNumber: number) => void }) {
   const [open, setOpen] = useState(false);
+  const [fullScreen, setFullScreen] = useState(false);
   const [mode, setMode] = useState<SupportMode>("support");
   const [draft, setDraft] = useState("");
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -253,7 +274,7 @@ export function SupportChatbot({ context }: { context: SupportContext }) {
   )), [context.documentId, messages, mode]);
   const quickTopics = mode === "support" ? supportQuickTopics : documentQuickTopics;
   const greeting = mode === "support"
-    ? "안녕하세요! Moonwords 문제 해결 도우미예요. 어떤 기능이 잘 안 되는지 편하게 적어 주세요."
+    ? "안녕하세요. Moon이에요. 어떤 기능이 궁금한지 편하게 적어 주세요."
     : context.documentTitle
       ? `현재 본문 ‘${context.documentTitle}’을 바탕으로 답할게요. 내용, 문장, 표현을 무엇이든 물어보세요.`
       : "본문 질문을 하려면 먼저 내 본문에서 학습할 글을 열어 주세요.";
@@ -269,11 +290,21 @@ export function SupportChatbot({ context }: { context: SupportContext }) {
     inputRef.current?.focus();
     messagesEndRef.current?.scrollIntoView({ block: "end" });
     const closeOnEscape = (event: KeyboardEvent) => {
-      if (event.key === "Escape") setOpen(false);
+      if (event.key === "Escape") {
+        if (fullScreen) setFullScreen(false);
+        else setOpen(false);
+      }
     };
     document.addEventListener("keydown", closeOnEscape);
     return () => document.removeEventListener("keydown", closeOnEscape);
-  }, [documentIsAnswering, mode, open, visibleMessages.length]);
+  }, [documentIsAnswering, fullScreen, mode, open, visibleMessages.length]);
+
+  useEffect(() => {
+    if (!fullScreen) return;
+    const previous = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => { document.body.style.overflow = previous; };
+  }, [fullScreen]);
 
   const appendAssistant = (reply: SupportReply, selectedMode: SupportMode, documentId?: string) => {
     setMessages((current) => [...current, {
@@ -283,6 +314,13 @@ export function SupportChatbot({ context }: { context: SupportContext }) {
       documentId,
       ...reply,
     }]);
+  };
+
+  const cancelPendingAnswer = () => {
+    if (!pendingRequest) return;
+    activeRequest.current += 1;
+    setPendingRequest(null);
+    appendAssistant({ text: "답변 생성을 취소했어요." }, "document", pendingRequest.documentId);
   };
 
   const ask = async (value: string) => {
@@ -311,7 +349,7 @@ export function SupportChatbot({ context }: { context: SupportContext }) {
       return;
     }
     if (!context.signedIn || !supabase) {
-      appendAssistant({ text: "본문 AI 질문은 로그인 후 사용할 수 있습니다. 문제 해결 도움말은 로그인 없이도 계속 이용할 수 있어요." }, selectedMode, selectedDocumentId);
+      appendAssistant({ text: "본문 질문은 로그인 후 사용할 수 있어요." }, selectedMode, selectedDocumentId);
       return;
     }
 
@@ -340,7 +378,7 @@ export function SupportChatbot({ context }: { context: SupportContext }) {
     } catch (error) {
       if (activeRequest.current === requestId && latestDocumentId.current === selectedDocumentId) {
         const message = error instanceof Error ? error.message : "본문 질문에 답하지 못했습니다.";
-        appendAssistant({ text: `본문 답변을 만들지 못했습니다. ${message}` }, selectedMode, selectedDocumentId);
+        appendAssistant({ text: `답변을 만들지 못했습니다.\n\n${message}` }, selectedMode, selectedDocumentId);
       }
     } finally {
       setPendingRequest((current) => current?.requestId === requestId ? null : current);
@@ -353,30 +391,33 @@ export function SupportChatbot({ context }: { context: SupportContext }) {
   };
 
   return (
-    <div className={`support-chatbot ${open ? "is-open" : ""}`}>
+    <div className={`support-chatbot ${open ? "is-open" : ""} ${fullScreen ? "is-fullscreen" : ""}`}>
       {open && (
-        <section id="moonwords-support-chat" className="support-chat-panel" role="dialog" aria-label="Moonwords 도움말 및 본문 질문 챗봇" aria-modal="false">
+        <section id="moonwords-support-chat" className="support-chat-panel" role="dialog" aria-label="Moon 챗봇" aria-modal={fullScreen}>
           <header className="support-chat-header">
-            <span className="support-chat-avatar">MW</span>
-            <div><b>Moonwords 챗봇</b><small><i /> {pageLabel} 화면 안내 가능</small></div>
-            <button type="button" onClick={() => setOpen(false)} aria-label="도움말 챗봇 접기">×</button>
+            <span className="support-chat-avatar">M</span>
+            <div><b>Moon</b><small><i /> {pageLabel} 화면</small></div>
+            <div className="support-chat-header-actions">
+              <button type="button" onClick={() => setFullScreen((current) => !current)} aria-label={fullScreen ? "작은 화면으로 보기" : "전체 화면으로 보기"} title={fullScreen ? "작은 화면" : "전체 화면"}>{fullScreen ? "↙" : "↗"}</button>
+              <button type="button" onClick={() => { setFullScreen(false); setOpen(false); }} aria-label="Moon 닫기">×</button>
+            </div>
           </header>
 
-          <div className="support-chat-modes" role="tablist" aria-label="챗봇 대화 종류">
-            <button type="button" role="tab" aria-selected={mode === "support"} className={mode === "support" ? "active" : ""} onClick={() => setMode("support")}>문제 해결</button>
+          <div className="support-chat-modes" role="tablist" aria-label="대화 종류">
+            <button type="button" role="tab" aria-selected={mode === "support"} className={mode === "support" ? "active" : ""} onClick={() => setMode("support")}>기능 질문</button>
             <button type="button" role="tab" aria-selected={mode === "document"} className={mode === "document" ? "active" : ""} onClick={() => setMode("document")}>본문 질문</button>
           </div>
 
           <div className="support-chat-messages" aria-live="polite">
             <div className="support-message assistant">
               <span className="support-message-avatar">M</span>
-              <div><p>{greeting}</p></div>
+              <div><ChatText text={greeting} /></div>
             </div>
             {visibleMessages.map((message) => (
               <div className={`support-message ${message.role}`} key={message.id}>
                 {message.role === "assistant" && <span className="support-message-avatar">M</span>}
                 <div>
-                  <p>{message.text}</p>
+                  <ChatText text={message.text} onOpenSentence={message.role === "assistant" && message.mode === "document" && onOpenSentence ? (sentenceNumber) => { setFullScreen(false); setOpen(false); onOpenSentence(sentenceNumber); } : undefined} />
                   {message.action && <a href={message.action.href}>{message.action.label} →</a>}
                 </div>
               </div>
@@ -401,27 +442,30 @@ export function SupportChatbot({ context }: { context: SupportContext }) {
               maxLength={300}
               disabled={inputBusy}
               onChange={(event) => setDraft(event.target.value)}
-              placeholder={mode === "support" ? "문제나 오류를 입력하세요" : "현재 본문에 대해 질문하세요"}
-              aria-label={mode === "support" ? "문제 해결 질문" : "현재 본문 질문"}
+              placeholder={mode === "support" ? "궁금한 기능을 입력하세요" : "현재 본문에 대해 질문하세요"}
+              aria-label={mode === "support" ? "기능 질문" : "현재 본문 질문"}
             />
-            <button type="submit" disabled={!draft.trim() || inputBusy} aria-label="질문 보내기">
-              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m4 4 17 8-17 8 3-8-3-8Zm3 8h14" /></svg>
-            </button>
+            {inputBusy ? (
+              <button type="button" className="support-cancel-answer" onClick={cancelPendingAnswer} aria-label="답변 생성 취소">■</button>
+            ) : (
+              <button type="submit" disabled={!draft.trim()} aria-label="질문 보내기">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m4 4 17 8-17 8 3-8-3-8Zm3 8h14" /></svg>
+              </button>
+            )}
           </form>
-          <small className="support-chat-privacy">{mode === "support" ? "자동 도움말 · 입력 내용은 서버로 전송되지 않아요" : "본문 질문 · 현재 본문과 최근 대화를 Gemini에 전송해요"}</small>
         </section>
       )}
 
       <button
         type="button"
         className="support-chat-launcher"
-        onClick={() => setOpen((current) => !current)}
+        onClick={() => { if (open) { setFullScreen(false); setOpen(false); } else setOpen(true); }}
         aria-controls="moonwords-support-chat"
         aria-expanded={open}
-        aria-label={open ? "도움말 챗봇 접기" : "Moonwords 챗봇 열기"}
+        aria-label={open ? "Moon 닫기" : "Moon 열기"}
       >
         {open ? <span aria-hidden="true">×</span> : <ChatBubbleIcon />}
-        {!open && <b>도움말</b>}
+        {!open && <b>Moon</b>}
       </button>
     </div>
   );

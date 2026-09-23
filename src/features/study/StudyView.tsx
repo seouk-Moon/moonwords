@@ -4,7 +4,7 @@ import { cleanSelection, sameLexeme } from "../../lib/app-utils";
 import { buildStudySectionGroups } from "../../lib/analysis-normalization";
 import { describeCefrLevel, formatCefrLevel } from "../../lib/cefr";
 import type { SelectedWord } from "../../app-types";
-import type { StudyDocument, StudyProgress, VocabularyItem } from "../../types";
+import type { DocumentAnalysis, StudyDocument, StudyProgress, VocabularyItem } from "../../types";
 import { HighlightedEnglish } from "./HighlightedEnglish";
 import { ListeningControls, PlaybackIcon } from "./ListeningControls";
 
@@ -16,10 +16,14 @@ type Props = {
   onDeleteWord: (id: string) => Promise<void>;
   onProgress: (next: StudyProgress) => void;
   onRenameDocument: (documentId: string, title: string) => Promise<void>;
+  onUpdateAnalysis: (documentId: string, analysis: DocumentAnalysis) => Promise<void>;
+  onUpdateSentence: (documentId: string, sentenceId: number, english: string, korean: string) => Promise<void>;
   onFullListeningComplete: () => void;
 };
 
-export function StudyView({ doc, words, progress, onSaveWord, onDeleteWord, onProgress, onRenameDocument, onFullListeningComplete }: Props) {
+type SuggestedWord = { word: string; meaning: string; sentenceId: number; sourceSentence: string; translation: string };
+
+export function StudyView({ doc, words, progress, onSaveWord, onDeleteWord, onProgress, onRenameDocument, onUpdateAnalysis, onUpdateSentence, onFullListeningComplete }: Props) {
   const [selected, setSelected] = useState<SelectedWord | null>(null);
   const [loadingMeaning, setLoadingMeaning] = useState(false);
   const [lookupHighlight, setLookupHighlight] = useState<{ word: string; sentenceId: number; status: "loading" | "done" } | null>(null);
@@ -36,6 +40,14 @@ export function StudyView({ doc, words, progress, onSaveWord, onDeleteWord, onPr
   const [titleDraft, setTitleDraft] = useState(doc.title);
   const [titleSaving, setTitleSaving] = useState(false);
   const [titleError, setTitleError] = useState("");
+  const [editingSentenceId, setEditingSentenceId] = useState<number | null>(null);
+  const [sentenceEnglishDraft, setSentenceEnglishDraft] = useState("");
+  const [sentenceKoreanDraft, setSentenceKoreanDraft] = useState("");
+  const [sentenceSaving, setSentenceSaving] = useState(false);
+  const [sentenceError, setSentenceError] = useState("");
+  const [wordReviewQueue, setWordReviewQueue] = useState<SuggestedWord[]>([]);
+  const [showWordReview, setShowWordReview] = useState(false);
+  const [wordReviewDrag, setWordReviewDrag] = useState(0);
   const articleRef = useRef<HTMLDivElement>(null);
   const topListeningRef = useRef<HTMLDivElement>(null);
   const popoverRef = useRef<HTMLDivElement>(null);
@@ -44,9 +56,77 @@ export function StudyView({ doc, words, progress, onSaveWord, onDeleteWord, onPr
   const lookupNoticeTimer = useRef<number | null>(null);
   const listeningRun = useRef(0);
   const playbackPosition = useRef({ sentenceIndex: 0, sentenceTime: 0, startedAt: 0 });
+  const preferredVoice = useRef<SpeechSynthesisVoice | null>(null);
+  const localizedReadingMapAttempted = useRef(new Set<string>());
+  const wordReviewPointerStart = useRef<number | null>(null);
   const sentences = doc.analysis.sentences;
   const studySections = useMemo(() => buildStudySectionGroups(doc.analysis), [doc.analysis]);
   const difficultSentences = progress.bookmarked_sentence_ids;
+  const suggestedWords = useMemo<SuggestedWord[]>(() => {
+    const seen = new Set<string>();
+    const saved = new Set(words.map((item) => item.word.trim().toLowerCase()));
+    return sentences.flatMap((sentence) => sentence.keywords.map((keyword) => ({
+      word: keyword.word,
+      meaning: keyword.meaning,
+      sentenceId: sentence.id,
+      sourceSentence: sentence.english,
+      translation: sentence.korean,
+    }))).filter((item) => {
+      const key = item.word.trim().toLowerCase();
+      if (!key || seen.has(key) || saved.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+  }, [sentences, words]);
+
+  useEffect(() => {
+    const chooseVoice = () => {
+      const candidates = window.speechSynthesis.getVoices().filter((voice) => /^en(?:-|_)/i.test(voice.lang));
+      const score = (voice: SpeechSynthesisVoice) => {
+        const name = voice.name.toLowerCase();
+        let value = /^en[-_]us$/i.test(voice.lang) ? 60 : 20;
+        if (/google us english/.test(name)) value += 120;
+        if (/microsoft.*(?:aria|ava|jenny|guy).*online/.test(name)) value += 110;
+        if (/(samantha|allison|ava|jenny)/.test(name)) value += 80;
+        if (/(natural|neural|online)/.test(name)) value += 35;
+        if (voice.default) value += 5;
+        return value;
+      };
+      preferredVoice.current = candidates.sort((a, b) => score(b) - score(a))[0] ?? null;
+    };
+    chooseVoice();
+    window.speechSynthesis.addEventListener("voiceschanged", chooseVoice);
+    return () => window.speechSynthesis.removeEventListener("voiceschanged", chooseVoice);
+  }, []);
+
+  const configureEnglishVoice = useCallback((utterance: SpeechSynthesisUtterance) => {
+    utterance.lang = preferredVoice.current?.lang || "en-US";
+    utterance.rate = 0.86;
+    utterance.pitch = 1;
+    if (preferredVoice.current) utterance.voice = preferredVoice.current;
+  }, []);
+
+  useEffect(() => {
+    if (!supabase || localizedReadingMapAttempted.current.has(doc.id)) return;
+    const koreanCount = (value: string) => (value.match(/[가-힣]/g) ?? []).length;
+    const englishCount = (value: string) => (value.match(/[A-Za-z]/g) ?? []).length;
+    const englishHeavy = (value: string) => englishCount(value) >= 8 && koreanCount(value) < englishCount(value) * 0.2;
+    const needsLocalization = [doc.analysis.summary, doc.analysis.structure, ...doc.analysis.sections.map((section) => section.role)].some(englishHeavy);
+    if (!needsLocalization) return;
+    localizedReadingMapAttempted.current.add(doc.id);
+    void supabase.functions.invoke("process-document", {
+      body: { action: "localize-reading-map", title: doc.title, summary: doc.analysis.summary, structure: doc.analysis.structure, sections: doc.analysis.sections },
+    }).then(async ({ data, error }) => {
+      if (error || !data) return;
+      const analysis: DocumentAnalysis = {
+        ...doc.analysis,
+        summary: String(data.summary || doc.analysis.summary),
+        structure: String(data.structure || doc.analysis.structure),
+        sections: Array.isArray(data.sections) ? data.sections : doc.analysis.sections,
+      };
+      await onUpdateAnalysis(doc.id, analysis);
+    }).catch(() => undefined);
+  }, [doc, onUpdateAnalysis]);
 
   const selectWord = useCallback(async () => {
     const selection = window.getSelection();
@@ -159,8 +239,7 @@ export function StudyView({ doc, words, progress, onSaveWord, onDeleteWord, onPr
     }
     playbackPosition.current = { sentenceIndex: index, sentenceTime: safeSentenceTime, startedAt: 0 };
     const utterance = new SpeechSynthesisUtterance(remainingText);
-    utterance.lang = "en-US";
-    utterance.rate = 0.86;
+    configureEnglishVoice(utterance);
     utterance.onstart = () => {
       if (run !== listeningRun.current) return;
       playbackPosition.current.startedAt = pauseOnStart ? 0 : performance.now();
@@ -176,7 +255,7 @@ export function StudyView({ doc, words, progress, onSaveWord, onDeleteWord, onPr
       if (run === listeningRun.current) stopListening();
     };
     window.speechSynthesis.speak(utterance);
-  }, [estimateSentenceDuration, onFullListeningComplete, sentenceOffsetToCharIndex, sentences, stopListening]);
+  }, [configureEnglishVoice, estimateSentenceDuration, onFullListeningComplete, sentenceOffsetToCharIndex, sentences, stopListening]);
 
   const startFullListening = () => {
     listeningRun.current += 1;
@@ -207,8 +286,7 @@ export function StudyView({ doc, words, progress, onSaveWord, onDeleteWord, onPr
       return;
     }
     const utterance = new SpeechSynthesisUtterance(sentence.english);
-    utterance.lang = "en-US";
-    utterance.rate = 0.86;
+    configureEnglishVoice(utterance);
     utterance.onstart = () => {
       if (run !== listeningRun.current) return;
       setChapterListeningKey(key);
@@ -219,7 +297,7 @@ export function StudyView({ doc, words, progress, onSaveWord, onDeleteWord, onPr
     utterance.onend = () => playChapterNext(indices, position + 1, run, key);
     utterance.onerror = () => { if (run === listeningRun.current) stopListening(); };
     window.speechSynthesis.speak(utterance);
-  }, [sentences, stopListening]);
+  }, [configureEnglishVoice, sentences, stopListening]);
 
   const toggleChapterListening = (key: string, indices: number[]) => {
     if (chapterListeningKey === key && chapterListeningState === "playing") {
@@ -364,8 +442,7 @@ export function StudyView({ doc, words, progress, onSaveWord, onDeleteWord, onPr
     setSingleSpeakingSentenceIndex(sentenceIndex);
     setSingleListeningState("playing");
     const utterance = new SpeechSynthesisUtterance(text);
-    utterance.lang = "en-US";
-    utterance.rate = 0.86;
+    configureEnglishVoice(utterance);
     const finish = () => {
       if (run === listeningRun.current) {
         setSingleSpeakingSentenceIndex(null);
@@ -426,6 +503,64 @@ export function StudyView({ doc, words, progress, onSaveWord, onDeleteWord, onPr
     setSelected(null);
     window.getSelection()?.removeAllRanges();
   };
+  const beginSentenceEdit = (sentenceId: number, english: string, korean: string) => {
+    setEditingSentenceId(sentenceId);
+    setSentenceEnglishDraft(english);
+    setSentenceKoreanDraft(korean);
+    setSentenceError("");
+  };
+
+  const saveSentenceEdit = async () => {
+    if (editingSentenceId === null) return;
+    setSentenceSaving(true);
+    setSentenceError("");
+    try {
+      await onUpdateSentence(doc.id, editingSentenceId, sentenceEnglishDraft, sentenceKoreanDraft);
+      setEditingSentenceId(null);
+    } catch (error) {
+      setSentenceError(error instanceof Error ? error.message : "문장을 수정하지 못했습니다.");
+    } finally {
+      setSentenceSaving(false);
+    }
+  };
+
+  const openWordReview = () => {
+    setWordReviewQueue(suggestedWords);
+    setWordReviewDrag(0);
+    setShowWordReview(true);
+  };
+
+  const advanceWordReview = () => {
+    setWordReviewQueue((queue) => queue.slice(1));
+    setWordReviewDrag(0);
+  };
+
+  const registerSuggestedWord = async () => {
+    const current = wordReviewQueue[0];
+    if (!current) return;
+    await onSaveWord({
+      document_id: doc.id,
+      sentence_id: current.sentenceId,
+      word: current.word,
+      meaning: current.meaning,
+      source_sentence: current.sourceSentence,
+      translation: current.translation,
+      note: "",
+      status: "learning",
+      review_count: 0,
+      correct_count: 0,
+      incorrect_count: 0,
+    });
+    advanceWordReview();
+  };
+
+  const finishWordReviewDrag = () => {
+    if (wordReviewDrag > 80) void registerSuggestedWord();
+    else if (wordReviewDrag < -80) advanceWordReview();
+    else setWordReviewDrag(0);
+    wordReviewPointerStart.current = null;
+  };
+
   const beginTitleEdit = () => {
     setTitleDraft(doc.title);
     setTitleError("");
@@ -491,7 +626,7 @@ export function StudyView({ doc, words, progress, onSaveWord, onDeleteWord, onPr
           onTouchEnd={() => window.setTimeout(() => { void selectWord(); }, 120)}
           onScroll={() => setSelected(null)}
         >
-          <div className="article-tip"><b>모르는 단어를 드래그해 보세요.</b><span>저장된 단어는 하이라이트를 눌러 뜻 확인·삭제가 가능해요.</span></div>
+          <div className="article-tip"><div><b>모르는 단어를 드래그해 보세요.</b><span>저장된 단어는 하이라이트를 눌러 뜻 확인·삭제가 가능해요.</span></div><button type="button" onClick={openWordReview}>어려운 단어 미리 확인{suggestedWords.length ? ` · ${suggestedWords.length}` : ""}</button></div>
           <div ref={topListeningRef}>
             <ListeningControls
               state={listeningState}
@@ -509,7 +644,18 @@ export function StudyView({ doc, words, progress, onSaveWord, onDeleteWord, onPr
               const sentenceIsActive = singleSpeakingSentenceIndex === sourceIndex && singleListeningState !== "idle";
               return <div className={`sentence-pair ${difficultSentences.includes(sentence.id) ? "difficult" : ""} ${speakingSentenceIndex === sourceIndex || sentenceIsActive ? "listening" : ""}`} data-sentence={sentence.id} data-sentence-index={sourceIndex} key={`${sentence.id}-${sourceIndex}`}>
                 <div className="sentence-number">{sentence.marked && <span className="source-mark" title="원본 밑줄 표시">★</span>}{displayNumber}</div>
-                <div className="sentence-copy"><p className="english"><HighlightedEnglish text={sentence.english} words={sentenceWords} onOpen={openSavedWord} transientWord={lookupHighlight?.sentenceId === sentence.id ? lookupHighlight.word : undefined} transientStatus={lookupHighlight?.sentenceId === sentence.id ? lookupHighlight.status : undefined} onTransientDismiss={() => setLookupHighlight(null)} /></p><p className="korean">{sentence.korean}</p><div className="sentence-actions"><button className={sentenceIsActive ? "sentence-listen-active" : ""} aria-pressed={sentenceIsActive} onClick={() => speakSentence(sourceIndex, sentence.english)}><PlaybackIcon name={sentenceIsPlaying ? "pause" : "play"} />{sentenceIsPlaying ? "일시정지" : sentenceIsActive ? "계속 듣기" : "듣기"}</button><button onClick={() => toggleDifficultSentence(sentence.id)}>{difficultSentences.includes(sentence.id) ? "⚑ 어려운 문장 해제" : "⚐ 어려운 문장 체크"}</button></div></div>
+                <div className="sentence-copy">
+                  {editingSentenceId === sentence.id ? <div className="sentence-editor">
+                    <label>영어 문장<textarea value={sentenceEnglishDraft} onChange={(event) => setSentenceEnglishDraft(event.target.value)} /></label>
+                    <label>한국어 번역<textarea value={sentenceKoreanDraft} onChange={(event) => setSentenceKoreanDraft(event.target.value)} /></label>
+                    {sentenceError && <p className="sentence-edit-error" role="alert">{sentenceError}</p>}
+                    <div><button type="button" disabled={sentenceSaving || !sentenceEnglishDraft.trim()} onClick={() => void saveSentenceEdit()}>{sentenceSaving ? "저장 중…" : "저장"}</button><button type="button" disabled={sentenceSaving} onClick={() => setEditingSentenceId(null)}>취소</button></div>
+                  </div> : <>
+                    <p className="english"><HighlightedEnglish text={sentence.english} words={sentenceWords} onOpen={openSavedWord} transientWord={lookupHighlight?.sentenceId === sentence.id ? lookupHighlight.word : undefined} transientStatus={lookupHighlight?.sentenceId === sentence.id ? lookupHighlight.status : undefined} onTransientDismiss={() => setLookupHighlight(null)} /></p>
+                    <p className="korean">{sentence.korean}</p>
+                    <div className="sentence-actions"><button className={sentenceIsActive ? "sentence-listen-active" : ""} aria-pressed={sentenceIsActive} onClick={() => speakSentence(sourceIndex, sentence.english)}><PlaybackIcon name={sentenceIsPlaying ? "pause" : "play"} />{sentenceIsPlaying ? "일시정지" : sentenceIsActive ? "계속 듣기" : "듣기"}</button><button onClick={() => toggleDifficultSentence(sentence.id)}>{difficultSentences.includes(sentence.id) ? "⚑ 어려운 문장 해제" : "⚐ 어려운 문장 체크"}</button><button type="button" onClick={() => beginSentenceEdit(sentence.id, sentence.english, sentence.korean)}>✎ 문장 수정</button></div>
+                  </>}
+                </div>
               </div>;
             })}
           </section>)}
@@ -536,6 +682,32 @@ export function StudyView({ doc, words, progress, onSaveWord, onDeleteWord, onPr
           <div className="original-source-note">학습 화면의 번역·단어장·어려운 문장 체크·퀴즈 기능은 그대로 유지됩니다. 필요할 때 이 원문을 참고하세요.</div>
           <article className="original-source-text">{doc.original_text?.trim() || sentences.map((sentence) => sentence.english).join("\n\n")}</article>
         </aside>
+      </>}
+
+      {showWordReview && <>
+        <button className="word-review-backdrop" aria-label="어려운 단어 확인 닫기" onClick={() => setShowWordReview(false)} />
+        <section className="word-review-modal" role="dialog" aria-modal="true" aria-label="어려운 단어 미리 확인">
+          <header><div><span className="section-kicker">WORD CHECK</span><h2>어려운 단어 미리 확인</h2></div><button type="button" onClick={() => setShowWordReview(false)} aria-label="닫기">×</button></header>
+          {wordReviewQueue[0] ? <>
+            <p className="word-review-guide">왼쪽으로 넘기면 등록 안 함 · 오른쪽으로 넘기면 단어장 등록</p>
+            <div className="word-review-progress">남은 단어 {wordReviewQueue.length}개</div>
+            <article
+              className="word-review-card"
+              style={{ transform: `translateX(${wordReviewDrag}px) rotate(${wordReviewDrag / 28}deg)` }}
+              onPointerDown={(event) => { wordReviewPointerStart.current = event.clientX; event.currentTarget.setPointerCapture(event.pointerId); }}
+              onPointerMove={(event) => { if (wordReviewPointerStart.current !== null) setWordReviewDrag(event.clientX - wordReviewPointerStart.current); }}
+              onPointerUp={finishWordReviewDrag}
+              onPointerCancel={finishWordReviewDrag}
+            >
+              <span>{wordReviewDrag > 40 ? "단어장 등록" : wordReviewDrag < -40 ? "등록 안 함" : "확인"}</span>
+              <h3>{wordReviewQueue[0].word}</h3>
+              <strong>{wordReviewQueue[0].meaning || "뜻을 본문에서 확인해 보세요."}</strong>
+              <p>{wordReviewQueue[0].sourceSentence}</p>
+              <small>{wordReviewQueue[0].translation}</small>
+            </article>
+            <div className="word-review-actions"><button type="button" onClick={advanceWordReview}>← 등록 안 함</button><button type="button" className="primary" onClick={() => void registerSuggestedWord()}>단어장 등록 →</button></div>
+          </> : <div className="word-review-finished"><strong>확인이 끝났어요.</strong><p>필요한 단어만 단어장에 등록했습니다.</p><button type="button" onClick={() => setShowWordReview(false)}>닫기</button></div>}
+        </section>
       </>}
 
       {lookupNotice && <div className="lookup-complete-toast" role="status" aria-live="polite">{lookupNotice}</div>}

@@ -49,7 +49,7 @@ export function useQuizGeneration({
       documentId: target.id,
       status: "running",
       message: type === "comprehension"
-        ? `AI가 본문 이해 문제 ${count}개를 만드는 중…`
+        ? `AI가 본문 내용 퀴즈 ${count}개를 만드는 중…`
         : `빈칸 문제 ${count}개를 만드는 중…`,
     });
 
@@ -129,7 +129,7 @@ export function useQuizGeneration({
         type,
         documentId: target.id,
         status: "success",
-        message: `${type === "comprehension" ? "본문 이해" : "빈칸"} 문제 ${addedCount}개가 추가되었습니다.`,
+        message: `${type === "comprehension" ? "본문 내용 퀴즈" : "빈칸"} 문제 ${addedCount}개가 추가되었습니다.`,
       });
     } catch (caught) {
       if (generationRun.current !== runId) return;

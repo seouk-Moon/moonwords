@@ -250,7 +250,7 @@ async function callGeminiTts(text: string) {
   };
 }
 
-const requestedQuestionCount = (value: unknown, fallback = 5) => {
+const requestedQuestionCount = (value: unknown, fallback = 10) => {
   const parsed = typeof value === "number" ? value : Number(value);
   return Number.isFinite(parsed) ? Math.max(1, Math.min(10, Math.floor(parsed))) : fallback;
 };
@@ -259,6 +259,34 @@ const validateSourceText = (text: unknown) => {
   if (typeof text !== "string" || text.length < 40) return "분석할 본문이 필요합니다.";
   if (text.length > 120_000) return "본문은 120,000자 이하로 올려 주세요.";
   return "";
+};
+
+const detectChapterHeadings = (text: string) => {
+  const lines = text.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+  const headingPattern = /^(?:#{1,6}\s*)?(?:(?:chapter|part|section|unit)\s+[0-9ivxlcdm]+(?:\s*[:.\-–—]\s*|\s+).+|(?:chapter|part|section|unit)\s+[0-9ivxlcdm]+|\d{1,2}[.)]\s+[A-Z가-힣].{1,80}|[IVXLCDM]{1,6}[.)]\s+.{1,80})$/i;
+  const shortTitlePattern = /^[A-Z][A-Z0-9 '&’:\-–—,]{3,70}$/;
+  return [...new Set(lines.filter((line) => (headingPattern.test(line) || shortTitlePattern.test(line)) && line.length <= 90))].slice(0, 20);
+};
+
+const readingMapSchema = {
+  type: "object",
+  required: ["summary", "structure", "sections"],
+  properties: {
+    summary: { type: "string" },
+    structure: { type: "string" },
+    sections: {
+      type: "array",
+      items: {
+        type: "object",
+        required: ["id", "label", "role"],
+        properties: {
+          id: { type: "integer" },
+          label: { type: "string" },
+          role: { type: "string" },
+        },
+      },
+    },
+  },
 };
 
 const normalizeGeneratedLevel = (value: unknown) => {
@@ -396,7 +424,7 @@ Deno.serve(async (request: Request) => {
           .join("\n")
         : "";
       const result = await callGemini(
-        `제목: ${String(body.title || "제목 없음").slice(0, 200)}\n\n아래 번호가 붙은 영어 본문과 제공된 한국어 번역만 근거로 학습자의 질문에 한국어로 답하세요.\n- 본문에 없는 사실을 추측하거나 만들어내지 마세요. 근거가 없으면 본문에서 확인할 수 없다고 말하세요.\n- 특정 문장을 설명할 때는 해당 번호와 핵심 영어 표현을 함께 알려 주세요.\n- 후속 질문이면 이전 대화의 맥락을 이어가되, 언제나 본문을 최우선 근거로 사용하세요.\n- 답변은 친절하고 이해하기 쉽게 작성하되 불필요하게 길게 쓰지 마세요.\n\n이전 대화:\n${history || "없음"}\n\n현재 질문:\n${question}\n\n본문:\n${body.text}`,
+        `제목: ${String(body.title || "제목 없음").slice(0, 200)}\n\n아래 번호가 붙은 영어 본문과 제공된 한국어 번역만 근거로 학습자의 질문에 한국어로 답하세요.\n- 본문에 없는 사실을 추측하거나 만들어내지 마세요. 근거가 없으면 본문에서 확인할 수 없다고 말하세요.\n- 특정 문장을 설명할 때는 반드시 “N번 문장” 형식으로 문장 번호를 적고 핵심 영어 표현을 함께 알려 주세요.\n- 전체 내용 요청이면 핵심 흐름을 짧은 문단 또는 불릿으로 나누고 관련 문장 번호를 함께 적으세요.\n- 후속 질문이면 이전 대화의 맥락을 이어가되, 언제나 본문을 최우선 근거로 사용하세요.\n- 답변은 반드시 한국어로 작성하고, 한 문단을 너무 길게 만들지 마세요. 필요하면 소제목과 불릿을 사용하세요.\n\n이전 대화:\n${history || "없음"}\n\n현재 질문:\n${question}\n\n본문:\n${body.text}`,
         {
           type: "object",
           required: ["answer"],
@@ -407,6 +435,15 @@ Deno.serve(async (request: Request) => {
         { answer: result.answer },
         { headers: { ...cors, "Content-Type": "application/json" } },
       );
+    }
+
+    if (body.action === "localize-reading-map") {
+      const sections = Array.isArray(body.sections) ? body.sections.slice(0, 12) : [];
+      const result = await callGemini(
+        `아래 읽기 분석 정보를 자연스러운 한국어로 정리하세요.\n- summary와 structure는 반드시 한국어로 작성합니다.\n- section label이 원문에 실제 존재한 챕터/섹션 제목이면 그 제목은 원문 그대로 유지합니다.\n- 그 외 section label과 role은 한국어로 작성합니다.\n- 섹션 id와 순서는 절대 바꾸지 않습니다.\n\n제목: ${String(body.title || "제목 없음").slice(0, 200)}\n기존 요약: ${String(body.summary || "").slice(0, 4000)}\n기존 구조: ${String(body.structure || "").slice(0, 4000)}\n섹션: ${JSON.stringify(sections).slice(0, 8000)}`,
+        readingMapSchema,
+      );
+      return Response.json(result, { headers: { ...cors, "Content-Type": "application/json" } });
     }
 
     if (body.action === "generate-questions") {
@@ -445,7 +482,11 @@ Deno.serve(async (request: Request) => {
     if (validationError) return Response.json({ error: validationError }, { status: 400, headers: cors });
 
     const questionCount = requestedQuestionCount(body.questionCount);
-    const prompt = `제목: ${body.title || "제목 없음"}\n\n아래 영어 본문을 한국 학습자용 학습 데이터로 분석하세요. 번역과 어휘 분석을 반드시 같은 작업에서 함께 수행하세요.\n- level은 반드시 CEFR A1, A2, B1, B2, C1, C2 중 하나만 사용합니다.\n- 원문 전체를 누락 없이 자연스러운 문장 단위로 분리하고 1부터 연속 ID를 부여합니다.\n- english에는 원문 문장을 보존하고 korean에는 그 문장만 자연스럽게 번역합니다.\n- 의미 단락을 3~8개 section으로 묶고 각 sentence의 paragraph에 section id를 넣습니다.\n- 각 문장을 번역할 때 한국 학습자가 선택할 가능성이 높은 어려운 단어, 내용어, 구동사와 숙어를 보통 8~10개 keywords로 함께 만듭니다. 짧은 문장은 필요한 만큼만 만듭니다.\n- keyword.word는 원문에 실제 나온 형태와 철자를 그대로 쓰고, meaning은 해당 문장에서 사용된 뜻만 간결한 한국어로 씁니다. 관사, 대명사, be/do/have 같은 매우 기초적인 기능어는 제외합니다.\n- topic, 한국어 summary, 글의 전개를 보여주는 한국어 structure를 작성합니다.\n- 내용 이해 객관식 문제를 ${questionCount}개 만들고 options는 4개, answer는 0부터 시작하는 정답 index입니다.\n\n본문:\n${body.text}`;
+    const chapterHeadings = detectChapterHeadings(body.text);
+    const chapterHint = chapterHeadings.length
+      ? `\n원문에서 감지된 제목 후보입니다. 실제 챕터/섹션 제목이면 반드시 이 제목과 경계를 우선 사용하세요. 임의로 다른 제목을 만들지 마세요.\n${chapterHeadings.map((heading, index) => `${index + 1}. ${heading}`).join("\n")}\n`
+      : "";
+    const prompt = `제목: ${body.title || "제목 없음"}\n\n아래 영어 본문을 한국 학습자용 학습 데이터로 분석하세요. 번역과 어휘 분석을 반드시 같은 작업에서 함께 수행하세요.${chapterHint}\n- level은 반드시 CEFR A1, A2, B1, B2, C1, C2 중 하나만 사용합니다.\n- 원문 전체를 누락 없이 자연스러운 문장 단위로 분리하고 1부터 연속 ID를 부여합니다.\n- 원문에 명시적인 Chapter/Part/Section/Unit/번호형 제목이 있으면 그 제목 줄 자체는 문장으로 넣지 말고, 정확한 원문 제목을 section.label로 사용하며 해당 제목부터 다음 제목 전까지를 같은 section으로 묶습니다.\n- 명시적 챕터 제목이 없을 때만 의미 흐름을 기준으로 3~8개 section으로 나눕니다. 이 경우 section.label과 section.role은 한국어로 작성합니다.\n- english에는 원문 문장을 보존하고 korean에는 그 문장만 자연스럽게 번역합니다.\n- 각 문장을 번역할 때 한국 학습자가 선택할 가능성이 높은 어려운 단어, 내용어, 구동사와 숙어를 보통 8~10개 keywords로 함께 만듭니다. 짧은 문장은 필요한 만큼만 만듭니다.\n- keyword.word는 원문에 실제 나온 형태와 철자를 그대로 쓰고, meaning은 해당 문장에서 사용된 뜻만 간결한 한국어로 씁니다. 관사, 대명사, be/do/have 같은 매우 기초적인 기능어는 제외합니다.\n- topic, summary, structure는 반드시 자연스러운 한국어로 작성합니다. 명시적 원문 챕터 제목을 제외한 section.label과 모든 section.role도 한국어로 작성합니다.\n- 내용 이해 객관식 문제를 ${questionCount}개 만들고 options는 4개, answer는 0부터 시작하는 정답 index입니다.\n\n본문:\n${body.text}`;
     const analysis = normalizeGeneratedAnalysis(await callGemini(prompt, analysisSchema));
     return Response.json({ analysis }, { headers: { ...cors, "Content-Type": "application/json" } });
   } catch (error) {

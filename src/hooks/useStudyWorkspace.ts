@@ -6,7 +6,7 @@ import { clearAuthParamsFromUrl } from "../lib/auth-url";
 import { uid } from "../lib/app-utils";
 import { normalizeCefrLevel } from "../lib/cefr";
 import type { View } from "../app-types";
-import type { DocumentFolder, StudyDocument, StudyProgress, VocabularyItem } from "../types";
+import type { DocumentAnalysis, DocumentFolder, StudyDocument, StudyProgress, VocabularyItem } from "../types";
 import { appendWordQuizResult } from "../features/vocabulary/recent-results";
 import { useLearningAnalytics } from "./useLearningAnalytics";
 import type { QuizMode } from "../app-types";
@@ -243,6 +243,40 @@ export function useStudyWorkspace(configured: boolean) {
     setCurrent((item) => item ? update(item) : item);
   };
 
+
+  const updateDocumentAnalysis = async (documentId: string, analysis: DocumentAnalysis) => {
+    const updatedAt = new Date().toISOString();
+    if (supabase && session) {
+      const result = await supabase.from("documents").update({ analysis, updated_at: updatedAt }).eq("id", documentId);
+      if (result.error) throw new Error(result.error.message);
+    }
+    const update = (item: StudyDocument) => item.id === documentId ? { ...item, analysis, updated_at: updatedAt } : item;
+    setDocuments((items) => items.map(update));
+    setCurrent((item) => item ? update(item) : item);
+  };
+
+  const updateSentence = async (documentId: string, sentenceId: number, english: string, korean: string) => {
+    const document = documents.find((item) => item.id === documentId);
+    if (!document) throw new Error("변경할 본문을 찾지 못했습니다.");
+    const trimmedEnglish = english.trim();
+    const trimmedKorean = korean.trim();
+    if (!trimmedEnglish) throw new Error("영어 문장을 입력해 주세요.");
+    const nextAnalysis: DocumentAnalysis = {
+      ...document.analysis,
+      sentences: document.analysis.sentences.map((sentence) => sentence.id === sentenceId
+        ? { ...sentence, english: trimmedEnglish, korean: trimmedKorean }
+        : sentence),
+    };
+    await updateDocumentAnalysis(documentId, nextAnalysis);
+
+    setWords((items) => items.map((word) => word.document_id === documentId && word.sentence_id === sentenceId
+      ? { ...word, source_sentence: trimmedEnglish, translation: trimmedKorean, updated_at: new Date().toISOString() }
+      : word));
+    if (supabase && session) {
+      await supabase.from("vocabulary").update({ source_sentence: trimmedEnglish, translation: trimmedKorean }).eq("document_id", documentId).eq("sentence_id", sentenceId);
+    }
+  };
+
   const deleteDocument = async (documentId: string) => {
     const document = documents.find((item) => item.id === documentId);
     if (!document) throw new Error("삭제할 본문을 찾지 못했습니다.");
@@ -307,7 +341,7 @@ export function useStudyWorkspace(configured: boolean) {
         .select()
         .single();
     }
-    if (result.error) throw new Error(result.error.message.includes("document_folders") ? "폴더 기능 migration을 먼저 적용해 주세요." : result.error.message);
+    if (result.error) throw new Error(result.error.message.includes("document_folders") ? "폴더를 저장하지 못했습니다. 잠시 뒤 다시 시도해 주세요." : result.error.message);
     const folder = { ...(result.data as DocumentFolder), sort_order: (result.data as DocumentFolder).sort_order ?? nextSortOrder };
     setFolders((items) => sortFolders([...items, folder]));
     return folder;
@@ -339,7 +373,7 @@ export function useStudyWorkspace(configured: boolean) {
     setCurrent((doc) => doc ? update(doc) : doc);
     if (supabase && session) {
       const result = await supabase.from("documents").update({ folder_id: folderId, updated_at: new Date().toISOString() }).eq("id", documentId);
-      if (result.error) throw new Error(result.error.message.includes("folder_id") ? "폴더 기능 migration을 먼저 적용해 주세요." : result.error.message);
+      if (result.error) throw new Error(result.error.message.includes("folder_id") ? "폴더를 저장하지 못했습니다. 잠시 뒤 다시 시도해 주세요." : result.error.message);
     }
   };
 
@@ -362,7 +396,7 @@ export function useStudyWorkspace(configured: boolean) {
       if (result.error) {
         setFolders(previous);
         throw new Error(isFolderOrderMigrationError(result.error.message)
-          ? "폴더 순서 migration을 먼저 적용해 주세요."
+          ? "폴더 순서를 저장하지 못했습니다. 잠시 뒤 다시 시도해 주세요."
           : result.error.message);
       }
     }
@@ -393,6 +427,8 @@ export function useStudyWorkspace(configured: boolean) {
     addDocumentAndOpen,
     applyUpdatedDocument,
     renameDocument,
+    updateDocumentAnalysis,
+    updateSentence,
     deleteDocument,
     createFolder,
     renameFolder,

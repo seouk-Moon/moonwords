@@ -26,7 +26,7 @@ export function Quiz({ doc, words, progress, generationJob, onClose, onGenerate,
   const [comprehensionScope, setComprehensionScope] = useState<ComprehensionScope>("all");
   const [missedComprehensionIds, setMissedComprehensionIds] = useState<number[]>(() => readMissedComprehensionIds(progress, doc.analysis.questions.length));
   const [comprehensionUseAll, setComprehensionUseAll] = useState(true);
-  const [comprehensionCount, setComprehensionCount] = useState(Math.max(1, Math.min(5, doc.analysis.questions.length)));
+  const [comprehensionCount, setComprehensionCount] = useState(Math.max(1, Math.min(10, doc.analysis.questions.length)));
   const [activeComprehensionIds, setActiveComprehensionIds] = useState<number[]>(() => shuffle(doc.analysis.questions.map((_, questionIndex) => questionIndex)));
 
   const [vocabDirection, setVocabDirection] = useState<VocabDirection>("english-korean");
@@ -364,19 +364,19 @@ export function Quiz({ doc, words, progress, generationJob, onClose, onGenerate,
   const availableOrderingTokens = question?.kind === "ordering" ? question.shuffledTokens.filter((token) => !orderedTokenIds.includes(token.id)) : [];
   const currentFlashcardRetryCount = question?.kind === "flashcard" ? (flashcardRetryByWord[question.wordId] ?? 0) : 0;
   const availableComprehensionCount = comprehensionScope === "incorrect" ? missedComprehensionIds.length : doc.analysis.questions.length;
-  const emptyTitle = mode === "comprehension" && comprehensionScope === "incorrect" ? "현재 저장된 본문 이해 오답이 없어요." : mode === "ordering" ? orderingScope === "difficult" ? "‘어려운 문장’으로 체크한 문장이 없어요." : "출제할 문장을 선택해 주세요." : "단어 퀴즈를 만들 단어가 없어요.";
+  const emptyTitle = mode === "comprehension" && comprehensionScope === "incorrect" ? "현재 저장된 본문 내용 퀴즈 오답이 없어요." : mode === "ordering" ? orderingScope === "difficult" ? "‘어려운 문장’으로 체크한 문장이 없어요." : "출제할 문장을 선택해 주세요." : "단어 퀴즈를 만들 단어가 없어요.";
   const emptyDescription = mode === "comprehension" ? "전체 문제에서 새로 풀거나, 틀린 문제가 생기면 오답만 다시 풀 수 있어요." : mode === "ordering" ? orderingScope === "difficult" ? "본문 학습에서 문장에 ‘어려운 문장 체크’를 표시해 주세요." : "직접 선택에서 한 문장 이상 골라 주세요." : "본문에서 단어를 저장한 뒤 다시 시작해 주세요.";
 
   const generationRunning = generationJob?.status === "running";
 
   return <main className="tool-page quiz-page" aria-label="학습 퀴즈">
-    <div className="tool-heading"><div><span className="eyebrow">ACTIVE RECALL</span><h1>학습 퀴즈</h1><p>{doc.title} · 본문 이해, 단어 뜻, 빈칸, 플래시카드와 어순 배열을 연습하세요.</p></div><button className="outline-button" onClick={onClose}>본문으로</button></div>
-    <div className="quiz-modes"><button className={mode === "comprehension" ? "active" : ""} onClick={() => { setStarted(false); prepareComprehension(); }}>본문 이해</button><button className={mode === "meaning" ? "active" : ""} onClick={() => reset("meaning")}>단어 뜻</button><button className={mode === "flashcard" ? "active" : ""} onClick={() => reset("flashcard")}>플래시카드</button><button className={mode === "cloze" ? "active" : ""} onClick={() => reset("cloze")}>빈칸 완성</button><button className={mode === "ordering" ? "active" : ""} onClick={() => reset("ordering")}>어순 배열</button></div>
+    <div className="tool-heading"><div><span className="eyebrow">ACTIVE RECALL</span><h1>학습 퀴즈</h1><p>{doc.title} · 본문 내용 퀴즈, 단어 퀴즈, 빈칸, 플래시카드와 어순 배열을 연습하세요.</p></div><button className="outline-button" onClick={onClose}>본문으로</button></div>
+    <div className="quiz-modes"><button className={mode === "comprehension" ? "active" : ""} onClick={() => { setStarted(false); prepareComprehension(); }}>본문 내용 퀴즈</button><button className={mode === "meaning" ? "active" : ""} onClick={() => reset("meaning")}>단어 퀴즈</button><button className={mode === "flashcard" ? "active" : ""} onClick={() => reset("flashcard")}>플래시카드</button><button className={mode === "cloze" ? "active" : ""} onClick={() => reset("cloze")}>빈칸 완성</button><button className={mode === "ordering" ? "active" : ""} onClick={() => reset("ordering")}>어순 배열</button></div>
 
     {!started && mode === "comprehension" && <section className="quiz-settings">
       <div className="quiz-setting-row"><strong>출제 범위</strong><div className="scope-buttons"><button className={comprehensionScope === "all" ? "active" : ""} onClick={() => { setComprehensionScope("all"); prepareComprehension("all"); }}>전체 문제</button><button className={comprehensionScope === "incorrect" ? "active" : ""} onClick={() => { setComprehensionScope("incorrect"); prepareComprehension("incorrect"); }}>오답만 <b>{missedComprehensionIds.length}</b></button></div></div>
       <div className="quiz-setting-row"><strong>문제 수</strong><label className="all-count-toggle"><input type="checkbox" checked={comprehensionUseAll} onChange={(event) => { setComprehensionUseAll(event.target.checked); prepareComprehension(comprehensionScope, event.target.checked); }} />전체 출제</label><label className="number-picker"><input type="number" min="1" max={Math.max(1, availableComprehensionCount)} disabled={comprehensionUseAll} value={Math.min(comprehensionCount, Math.max(1, availableComprehensionCount))} onChange={(event) => { const count = Math.max(1, Number(event.target.value)); setComprehensionCount(count); prepareComprehension(comprehensionScope, false, count); }} />개</label><button className="reshuffle-button" onClick={() => prepareComprehension()}>↻ 새로 섞어 출제</button></div>
-      <div className="quiz-setting-row generation-row"><strong>문제 추가</strong><label className="number-picker"><input type="number" min="1" max={MAX_COMPREHENSION_GENERATION_COUNT} value={generationCount} onChange={(event) => setGenerationCount(Math.max(1, Math.min(MAX_COMPREHENSION_GENERATION_COUNT, Number(event.target.value) || 1)))} />개</label><button className="generate-button" disabled={generationRunning} onClick={() => onGenerate("comprehension", generationCount)}>{generationRunning ? "생성 진행 중…" : "✦ AI 본문 이해 문제 추가"}</button><small>한 번에 최대 {MAX_COMPREHENSION_GENERATION_COUNT}개 · 다른 화면으로 이동해도 계속 생성됩니다.</small></div>
+      <div className="quiz-setting-row generation-row"><strong>문제 추가</strong><label className="number-picker"><input type="number" min="1" max={MAX_COMPREHENSION_GENERATION_COUNT} value={generationCount} onChange={(event) => setGenerationCount(Math.max(1, Math.min(MAX_COMPREHENSION_GENERATION_COUNT, Number(event.target.value) || 1)))} />개</label><button className="generate-button" disabled={generationRunning} onClick={() => onGenerate("comprehension", generationCount)}>{generationRunning ? "생성 진행 중…" : "✦ AI 본문 내용 퀴즈 추가"}</button><small>한 번에 최대 {MAX_COMPREHENSION_GENERATION_COUNT}개 · 다른 화면으로 이동해도 계속 생성됩니다.</small></div>
       <p className="scope-summary">현재 범위 {availableComprehensionCount}문제 · 틀린 문제는 자동으로 오답 목록에 저장됩니다.</p>
     </section>}
 
@@ -407,7 +407,7 @@ export function Quiz({ doc, words, progress, generationJob, onClose, onGenerate,
     {started && (!questions.length ? <div className="empty-state"><b>{emptyTitle}</b><p>{emptyDescription}</p></div> : done ? <QuizResult
       score={score}
       total={questions.length}
-      summary={score === questions.length && runMistakes.length === 0 ? "완벽해요!" : mode === "comprehension" ? `현재 본문 이해 오답 ${missedComprehensionIds.length}개가 저장되어 있어요.` : mode === "ordering" ? "오답을 확인한 뒤 다시 배열해 보세요." : mode === "flashcard" ? "모른다고 표시한 카드는 남은 카드 뒤로 보내 다시 확인했어요." : "틀린 단어와 정답을 바로 확인할 수 있어요."}
+      summary={score === questions.length && runMistakes.length === 0 ? "완벽해요!" : mode === "comprehension" ? `현재 본문 내용 퀴즈 오답 ${missedComprehensionIds.length}개가 저장되어 있어요.` : mode === "ordering" ? "오답을 확인한 뒤 다시 배열해 보세요." : mode === "flashcard" ? "모른다고 표시한 카드는 남은 카드 뒤로 보내 다시 확인했어요." : "틀린 단어와 정답을 바로 확인할 수 있어요."}
       mistakes={runMistakes}
       canRetryIncorrect={mode === "comprehension" && missedComprehensionIds.length > 0}
       onRetryIncorrect={retryIncorrect}
