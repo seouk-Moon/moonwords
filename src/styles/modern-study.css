@@ -2284,3 +2284,46 @@ button { font-weight: 650; }
   .security-editor-fields { grid-template-columns: 1fr; }
   .avatar-crop-preview { width: 210px; height: 210px; }
 }
+
+/* V10 — subsection word-check flashcards and keyboard classification */
+.chapter-header-actions { margin-left: auto; display: flex !important; flex-direction: row !important; align-items: center; gap: 7px; }
+.chapter-header-actions .chapter-listen-button { margin-left: 0; }
+.chapter-word-review-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 34px;
+  border: 1px solid #dbe3ef;
+  border-radius: 9px;
+  padding: 7px 10px;
+  background: #fff;
+  color: #5c6574;
+  font: inherit;
+  font-size: 9px;
+  font-weight: 750;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.chapter-word-review-button:hover { border-color: #a9bff0; background: #f7f9ff; color: #1d4ed8; }
+.word-review-modal:focus { outline: none; }
+.word-review-card.front-only { cursor: pointer; min-height: 290px; align-items: center; text-align: center; }
+.word-review-card.front-only h3 { font-size: 38px; }
+.word-review-card.revealed { cursor: grab; }
+.word-review-card.revealed:active { cursor: grabbing; }
+.word-review-reveal {
+  margin-top: 8px;
+  border: 0;
+  border-radius: 999px;
+  padding: 9px 13px;
+  background: #eef4ff;
+  color: #315bba;
+  font: inherit;
+  font-size: 10px;
+  font-weight: 800;
+  cursor: pointer;
+}
+.word-review-reveal:hover { background: #e1ebff; }
+
+@media (max-width: 700px) {
+  .chapter-header-actions { width: 100%; margin-left: 42px; justify-content: flex-end; }
+}

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { supabase } from "../../lib/supabase";
 import { cleanSelection, sameLexeme } from "../../lib/app-utils";
 import { buildStudySectionGroups } from "../../lib/analysis-normalization";
@@ -22,6 +22,26 @@ type Props = {
 };
 
 type SuggestedWord = { word: string; meaning: string; sentenceId: number; sourceSentence: string; translation: string };
+
+const collectSuggestedWords = (sentences: DocumentAnalysis["sentences"], words: VocabularyItem[], sentenceIds?: Set<number>) => {
+  const seen = new Set<string>();
+  const saved = new Set(words.map((item) => item.word.trim().toLowerCase()));
+  return sentences.flatMap((sentence) => {
+    if (sentenceIds && !sentenceIds.has(sentence.id)) return [];
+    return sentence.keywords.map((keyword) => ({
+      word: keyword.word,
+      meaning: keyword.meaning,
+      sentenceId: sentence.id,
+      sourceSentence: sentence.english,
+      translation: sentence.korean,
+    }));
+  }).filter((item) => {
+    const key = item.word.trim().toLowerCase();
+    if (!key || seen.has(key) || saved.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+};
 
 export function StudyView({ doc, words, progress, onSaveWord, onDeleteWord, onProgress, onRenameDocument, onUpdateAnalysis, onUpdateSentence, onFullListeningComplete }: Props) {
   const [selected, setSelected] = useState<SelectedWord | null>(null);
@@ -48,6 +68,8 @@ export function StudyView({ doc, words, progress, onSaveWord, onDeleteWord, onPr
   const [wordReviewQueue, setWordReviewQueue] = useState<SuggestedWord[]>([]);
   const [showWordReview, setShowWordReview] = useState(false);
   const [wordReviewDrag, setWordReviewDrag] = useState(0);
+  const [wordReviewRevealed, setWordReviewRevealed] = useState(false);
+  const [wordReviewScopeLabel, setWordReviewScopeLabel] = useState("전체 본문");
   const articleRef = useRef<HTMLDivElement>(null);
   const topListeningRef = useRef<HTMLDivElement>(null);
   const popoverRef = useRef<HTMLDivElement>(null);
@@ -59,25 +81,15 @@ export function StudyView({ doc, words, progress, onSaveWord, onDeleteWord, onPr
   const preferredVoice = useRef<SpeechSynthesisVoice | null>(null);
   const localizedReadingMapAttempted = useRef(new Set<string>());
   const wordReviewPointerStart = useRef<number | null>(null);
+  const wordReviewModalRef = useRef<HTMLElement>(null);
   const sentences = doc.analysis.sentences;
   const studySections = useMemo(() => buildStudySectionGroups(doc.analysis), [doc.analysis]);
   const difficultSentences = progress.bookmarked_sentence_ids;
-  const suggestedWords = useMemo<SuggestedWord[]>(() => {
-    const seen = new Set<string>();
-    const saved = new Set(words.map((item) => item.word.trim().toLowerCase()));
-    return sentences.flatMap((sentence) => sentence.keywords.map((keyword) => ({
-      word: keyword.word,
-      meaning: keyword.meaning,
-      sentenceId: sentence.id,
-      sourceSentence: sentence.english,
-      translation: sentence.korean,
-    }))).filter((item) => {
-      const key = item.word.trim().toLowerCase();
-      if (!key || seen.has(key) || saved.has(key)) return false;
-      seen.add(key);
-      return true;
-    });
-  }, [sentences, words]);
+  const suggestedWords = useMemo<SuggestedWord[]>(() => collectSuggestedWords(sentences, words), [sentences, words]);
+  const sectionSuggestedWords = useMemo(() => new Map(studySections.map((group) => [
+    group.key,
+    collectSuggestedWords(sentences, words, new Set(group.sentences.map(({ sentence }) => sentence.id))),
+  ])), [sentences, studySections, words]);
 
   useEffect(() => {
     const chooseVoice = () => {
@@ -524,15 +536,20 @@ export function StudyView({ doc, words, progress, onSaveWord, onDeleteWord, onPr
     }
   };
 
-  const openWordReview = () => {
-    setWordReviewQueue(suggestedWords);
+  const openWordReview = (items: SuggestedWord[] = suggestedWords, scopeLabel = "전체 본문") => {
+    setWordReviewQueue(items);
     setWordReviewDrag(0);
+    setWordReviewRevealed(false);
+    setWordReviewScopeLabel(scopeLabel);
     setShowWordReview(true);
+    window.setTimeout(() => wordReviewModalRef.current?.focus(), 0);
   };
 
   const advanceWordReview = () => {
     setWordReviewQueue((queue) => queue.slice(1));
     setWordReviewDrag(0);
+    setWordReviewRevealed(false);
+    window.setTimeout(() => wordReviewModalRef.current?.focus(), 0);
   };
 
   const registerSuggestedWord = async () => {
@@ -555,10 +572,32 @@ export function StudyView({ doc, words, progress, onSaveWord, onDeleteWord, onPr
   };
 
   const finishWordReviewDrag = () => {
+    if (!wordReviewRevealed) {
+      setWordReviewDrag(0);
+      wordReviewPointerStart.current = null;
+      return;
+    }
     if (wordReviewDrag > 80) void registerSuggestedWord();
     else if (wordReviewDrag < -80) advanceWordReview();
     else setWordReviewDrag(0);
     wordReviewPointerStart.current = null;
+  };
+
+  const handleWordReviewKeyDown = (event: KeyboardEvent<HTMLElement>) => {
+    if (!wordReviewQueue[0]) return;
+    if (!wordReviewRevealed && (event.key === "Enter" || event.key === " ")) {
+      event.preventDefault();
+      setWordReviewRevealed(true);
+      return;
+    }
+    if (!wordReviewRevealed) return;
+    if (event.key === "ArrowLeft") {
+      event.preventDefault();
+      advanceWordReview();
+    } else if (event.key === "ArrowRight") {
+      event.preventDefault();
+      void registerSuggestedWord();
+    }
   };
 
   const beginTitleEdit = () => {
@@ -626,7 +665,7 @@ export function StudyView({ doc, words, progress, onSaveWord, onDeleteWord, onPr
           onTouchEnd={() => window.setTimeout(() => { void selectWord(); }, 120)}
           onScroll={() => setSelected(null)}
         >
-          <div className="article-tip"><div><b>모르는 단어를 드래그해 보세요.</b><span>저장된 단어는 하이라이트를 눌러 뜻 확인·삭제가 가능해요.</span></div><button type="button" onClick={openWordReview}>어려운 단어 미리 확인{suggestedWords.length ? ` · ${suggestedWords.length}` : ""}</button></div>
+          <div className="article-tip"><div><b>모르는 단어를 드래그해 보세요.</b><span>저장된 단어는 하이라이트를 눌러 뜻 확인·삭제가 가능해요.</span></div><button type="button" onClick={() => openWordReview()}>어려운 단어 미리 확인{suggestedWords.length ? ` · ${suggestedWords.length}` : ""}</button></div>
           <div ref={topListeningRef}>
             <ListeningControls
               state={listeningState}
@@ -637,7 +676,7 @@ export function StudyView({ doc, words, progress, onSaveWord, onDeleteWord, onPr
             />
           </div>
           {studySections.map((group, sectionIndex) => <section className="paragraph-block" key={group.key}>
-            <header><span>{String(sectionIndex + 1).padStart(2, "0")}</span><div><b>{group.section.label}</b><small>{group.section.role}</small></div><button type="button" className={`chapter-listen-button ${chapterListeningKey === group.key ? "active" : ""}`} aria-pressed={chapterListeningKey === group.key && chapterListeningState !== "idle"} onClick={() => toggleChapterListening(group.key, group.sentences.map((item) => item.sourceIndex))}><PlaybackIcon name={chapterListeningKey === group.key && chapterListeningState === "playing" ? "pause" : "play"} />{chapterListeningKey === group.key && chapterListeningState === "playing" ? "일시정지" : chapterListeningKey === group.key && chapterListeningState === "paused" ? "계속 듣기" : "챕터 듣기"}</button></header>
+            <header><span>{String(sectionIndex + 1).padStart(2, "0")}</span><div><b>{group.section.label}</b><small>{group.section.role}</small></div><div className="chapter-header-actions"><button type="button" className="chapter-word-review-button" onClick={() => openWordReview(sectionSuggestedWords.get(group.key) ?? [], group.section.label)}>모르는 단어{(sectionSuggestedWords.get(group.key)?.length ?? 0) > 0 ? ` · ${sectionSuggestedWords.get(group.key)?.length}` : ""}</button><button type="button" className={`chapter-listen-button ${chapterListeningKey === group.key ? "active" : ""}`} aria-pressed={chapterListeningKey === group.key && chapterListeningState !== "idle"} onClick={() => toggleChapterListening(group.key, group.sentences.map((item) => item.sourceIndex))}><PlaybackIcon name={chapterListeningKey === group.key && chapterListeningState === "playing" ? "pause" : "play"} />{chapterListeningKey === group.key && chapterListeningState === "playing" ? "일시정지" : chapterListeningKey === group.key && chapterListeningState === "paused" ? "계속 듣기" : "챕터 듣기"}</button></div></header>
             {group.sentences.map(({ sentence, displayNumber, sourceIndex }) => {
               const sentenceWords = words.filter((word) => word.sentence_id === sentence.id);
               const sentenceIsPlaying = singleSpeakingSentenceIndex === sourceIndex && singleListeningState === "playing";
@@ -686,27 +725,30 @@ export function StudyView({ doc, words, progress, onSaveWord, onDeleteWord, onPr
 
       {showWordReview && <>
         <button className="word-review-backdrop" aria-label="어려운 단어 확인 닫기" onClick={() => setShowWordReview(false)} />
-        <section className="word-review-modal" role="dialog" aria-modal="true" aria-label="어려운 단어 미리 확인">
-          <header><div><span className="section-kicker">WORD CHECK</span><h2>어려운 단어 미리 확인</h2></div><button type="button" onClick={() => setShowWordReview(false)} aria-label="닫기">×</button></header>
+        <section ref={wordReviewModalRef} tabIndex={-1} onKeyDown={handleWordReviewKeyDown} className="word-review-modal" role="dialog" aria-modal="true" aria-label="어려운 단어 미리 확인">
+          <header><div><span className="section-kicker">WORD CHECK · {wordReviewScopeLabel}</span><h2>어려운 단어 미리 확인</h2></div><button type="button" onClick={() => setShowWordReview(false)} aria-label="닫기">×</button></header>
           {wordReviewQueue[0] ? <>
-            <p className="word-review-guide">왼쪽으로 넘기면 등록 안 함 · 오른쪽으로 넘기면 단어장 등록</p>
-            <div className="word-review-progress">남은 단어 {wordReviewQueue.length}개</div>
+            <p className="word-review-guide">{wordReviewRevealed ? "뜻을 확인했습니다. 분류해 주세요 · 키보드 ← 등록 안 함 / → 단어장 등록" : "먼저 영어 단어를 보고, 카드를 눌러 뜻을 확인하세요."}</p>
+            <div className="word-review-progress">{wordReviewScopeLabel} · 남은 단어 {wordReviewQueue.length}개</div>
             <article
-              className="word-review-card"
+              className={`word-review-card ${wordReviewRevealed ? "revealed" : "front-only"}`}
               style={{ transform: `translateX(${wordReviewDrag}px) rotate(${wordReviewDrag / 28}deg)` }}
-              onPointerDown={(event) => { wordReviewPointerStart.current = event.clientX; event.currentTarget.setPointerCapture(event.pointerId); }}
-              onPointerMove={(event) => { if (wordReviewPointerStart.current !== null) setWordReviewDrag(event.clientX - wordReviewPointerStart.current); }}
+              onClick={() => { if (!wordReviewRevealed && Math.abs(wordReviewDrag) < 8) setWordReviewRevealed(true); }}
+              onPointerDown={(event) => { if (!wordReviewRevealed) return; wordReviewPointerStart.current = event.clientX; event.currentTarget.setPointerCapture(event.pointerId); }}
+              onPointerMove={(event) => { if (wordReviewRevealed && wordReviewPointerStart.current !== null) setWordReviewDrag(event.clientX - wordReviewPointerStart.current); }}
               onPointerUp={finishWordReviewDrag}
               onPointerCancel={finishWordReviewDrag}
             >
-              <span>{wordReviewDrag > 40 ? "단어장 등록" : wordReviewDrag < -40 ? "등록 안 함" : "확인"}</span>
+              <span>{wordReviewRevealed ? (wordReviewDrag > 40 ? "단어장 등록" : wordReviewDrag < -40 ? "등록 안 함" : "뜻 확인 완료") : "ENGLISH"}</span>
               <h3>{wordReviewQueue[0].word}</h3>
-              <strong>{wordReviewQueue[0].meaning || "뜻을 본문에서 확인해 보세요."}</strong>
-              <p>{wordReviewQueue[0].sourceSentence}</p>
-              <small>{wordReviewQueue[0].translation}</small>
+              {wordReviewRevealed ? <>
+                <strong>{wordReviewQueue[0].meaning || "뜻을 본문에서 확인해 보세요."}</strong>
+                <p>{wordReviewQueue[0].sourceSentence}</p>
+                <small>{wordReviewQueue[0].translation}</small>
+              </> : <button type="button" className="word-review-reveal">눌러서 뜻 보기</button>}
             </article>
-            <div className="word-review-actions"><button type="button" onClick={advanceWordReview}>← 등록 안 함</button><button type="button" className="primary" onClick={() => void registerSuggestedWord()}>단어장 등록 →</button></div>
-          </> : <div className="word-review-finished"><strong>확인이 끝났어요.</strong><p>필요한 단어만 단어장에 등록했습니다.</p><button type="button" onClick={() => setShowWordReview(false)}>닫기</button></div>}
+            {wordReviewRevealed && <div className="word-review-actions"><button type="button" onClick={advanceWordReview}>← 등록 안 함</button><button type="button" className="primary" onClick={() => void registerSuggestedWord()}>단어장 등록 →</button></div>}
+          </> : <div className="word-review-finished"><strong>확인이 끝났어요.</strong><p>{wordReviewScopeLabel}에서 필요한 단어만 단어장에 등록했습니다.</p><button type="button" onClick={() => setShowWordReview(false)}>닫기</button></div>}
         </section>
       </>}
 
