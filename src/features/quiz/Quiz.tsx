@@ -70,19 +70,23 @@ export function Quiz({ doc, words, progress, generationJob, onClose, onGenerate,
     () => JSON.parse(quizWordsSignature) as Array<Pick<VocabularyItem, "id" | "sentence_id" | "word" | "meaning" | "source_sentence" | "translation">>,
     [quizWordsSignature],
   );
+  // Saving an answer updates doc.last_studied_at, not the quiz content.
+  // Depending on the whole document would reshuffle questions and options
+  // while picked still refers to the question that was just answered.
+  const analysis = doc.analysis;
 
   const questions = useMemo<QuizQuestion[]>(() => {
     void quizRun;
     if (mode === "comprehension") return activeComprehensionIds.flatMap((questionId): ChoiceQuizQuestion[] => {
-      const question = doc.analysis.questions[questionId] as ReadingQuestion | undefined;
+      const question = analysis.questions[questionId] as ReadingQuestion | undefined;
       return question ? [{ kind: "choice", prompt: question.question, options: question.options, answer: question.answer, explanation: question.explanation, sourceQuestionId: questionId }] : [];
     });
     if (mode === "ordering") {
       const targetSentences = orderingScope === "all"
-        ? doc.analysis.sentences
+        ? analysis.sentences
         : orderingScope === "difficult"
-          ? doc.analysis.sentences.filter((sentence) => progress.bookmarked_sentence_ids.includes(sentence.id))
-          : doc.analysis.sentences.filter((sentence) => selectedSentenceIds.includes(sentence.id));
+          ? analysis.sentences.filter((sentence) => progress.bookmarked_sentence_ids.includes(sentence.id))
+          : analysis.sentences.filter((sentence) => selectedSentenceIds.includes(sentence.id));
 
       return shuffle(targetSentences).flatMap((sentence): OrderingQuizQuestion[] => {
         const protectedPhrases = [
@@ -91,10 +95,10 @@ export function Quiz({ doc, words, progress, generationJob, onClose, onGenerate,
         ];
         const exercise = buildOrderingExercise(sentence.english, protectedPhrases, shortenLongSentence);
         if (exercise.answerTokens.length < 2) return [];
-        const sentenceIndex = doc.analysis.sentences.findIndex((item) => item.id === sentence.id);
-        const contextBefore = sentenceIndex > 0 ? doc.analysis.sentences[sentenceIndex - 1]?.english : undefined;
-        const contextAfter = sentenceIndex >= 0 && sentenceIndex + 1 < doc.analysis.sentences.length
-          ? doc.analysis.sentences[sentenceIndex + 1]?.english
+        const sentenceIndex = analysis.sentences.findIndex((item) => item.id === sentence.id);
+        const contextBefore = sentenceIndex > 0 ? analysis.sentences[sentenceIndex - 1]?.english : undefined;
+        const contextAfter = sentenceIndex >= 0 && sentenceIndex + 1 < analysis.sentences.length
+          ? analysis.sentences[sentenceIndex + 1]?.english
           : undefined;
         return [{
           kind: "ordering",
@@ -120,7 +124,7 @@ export function Quiz({ doc, words, progress, generationJob, onClose, onGenerate,
         const options = shuffle([word.word, ...alternatives]);
         return { kind: "choice", prompt: blank, options, answer: options.indexOf(word.word), explanation: `${word.word} — ${word.meaning}`, wordId: word.id, sourceSentence: word.source_sentence, testedPart: word.word };
       });
-      const generatedQuestions = (doc.analysis.cloze_questions ?? []).map((question): ChoiceQuizQuestion => {
+      const generatedQuestions = (analysis.cloze_questions ?? []).map((question): ChoiceQuizQuestion => {
         const answerText = question.options[question.answer] ?? "";
         const sourceSentence = answerText && /_{3,}/.test(question.question)
           ? question.question.replace(/_{3,}/, answerText)
@@ -154,7 +158,7 @@ export function Quiz({ doc, words, progress, generationJob, onClose, onGenerate,
       return { kind: "choice", prompt, options, answer: options.indexOf(answerText), explanation: word.source_sentence, wordId: word.id, sourceSentence: word.source_sentence, testedPart: word.word };
     });
     return [];
-  }, [mode, quizWordsSnapshot, doc, orderingScope, selectedSentenceIds, shortenLongSentence, progress.bookmarked_sentence_ids, activeComprehensionIds, vocabDirection, vocabFormat, vocabUseAll, vocabCount, flashcardUseAll, flashcardBatchCount, quizRun]);
+  }, [mode, quizWordsSnapshot, analysis, orderingScope, selectedSentenceIds, shortenLongSentence, progress.bookmarked_sentence_ids, activeComprehensionIds, vocabDirection, vocabFormat, vocabUseAll, vocabCount, flashcardUseAll, flashcardBatchCount, quizRun]);
 
   useEffect(() => {
     if (!done || !started || answeredCount <= 0 || completedRunRef.current === quizRun) return;
