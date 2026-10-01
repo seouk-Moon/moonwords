@@ -183,6 +183,7 @@ export default function App({ supabaseUrl, supabasePublishableKey }: AppProps = 
           onRenameDocument={workspace.renameDocument}
           onUpdateAnalysis={workspace.updateDocumentAnalysis}
           onUpdateSentence={workspace.updateSentence}
+          onDeleteSentence={workspace.deleteSentence}
           onFullListeningComplete={workspace.recordFullListeningCompleted}
         />
       )}
@@ -194,6 +195,8 @@ export default function App({ supabaseUrl, supabasePublishableKey }: AppProps = 
           onUpdate={workspace.updateWord}
           onDelete={workspace.deleteWord}
           onStudy={() => workspace.setView("study")}
+          onProgress={workspace.saveProgress}
+          onQuiz={() => workspace.setView("quiz")}
         />
       )}
 

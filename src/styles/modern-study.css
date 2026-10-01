@@ -2327,3 +2327,33 @@ button { font-weight: 650; }
 @media (max-width: 700px) {
   .chapter-header-actions { width: 100%; margin-left: 42px; justify-content: flex-end; }
 }
+
+/* Shared vocabulary sets and quiz review controls. */
+.word-set-settings { display: flex; align-items: center; flex-wrap: wrap; gap: 14px; padding: 18px 20px; margin-bottom: 20px; background: #f4f7fb; border: 1px solid #dce5ef; border-radius: 16px; }
+.word-set-settings label { display: flex; align-items: center; gap: 8px; font-weight: 700; }
+.word-set-settings input { width: 76px; padding: 9px; border: 1px solid #c5d3e1; border-radius: 8px; background: white; }
+.word-set-settings p { flex: 1; min-width: 180px; margin: 0; color: #54647a; font-size: 13px; }
+.word-set { margin: 0 0 22px; }
+.word-set-heading { display: flex; align-items: center; gap: 12px; width: 100%; padding: 16px 20px; margin-bottom: 12px; text-align: left; border: 1px solid #d5e1ec; border-radius: 14px; background: #eef4fb; color: #223c59; }
+.word-set-heading strong { font-size: 18px; }
+.word-set-heading span { color: #617287; }
+.word-set-heading b { margin-left: auto; font-size: 13px; }
+.study-marks { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
+.study-marks button { border: 1px solid #c6d2df; border-radius: 9px; padding: 8px 12px; background: white; color: #43566e; font-weight: 700; }
+.study-marks button[aria-pressed="true"] { background: #fff1c2; border-color: #dba824; color: #704400; }
+.study-marks button:last-child[aria-pressed="true"] { background: #ffe4dc; border-color: #dc8e77; color: #8c2e16; }
+.quiz-question-marks { margin: 0 auto 12px; max-width: 820px; justify-content: flex-end; }
+.quiz-question-marks > span { font-size: 12px; color: #65758b; margin-right: auto; }
+.quiz-setting-row select { max-width: 100%; padding: 10px 14px; border: 1px solid #c6d2df; border-radius: 10px; background: white; color: #263f5f; font-size: 15px; }
+.written-answer-highlight { margin-bottom: 18px; padding: 22px 24px; background: #e5f4ef; border: 2px solid #47a38c; border-radius: 14px; }
+.written-answer-highlight small { display: block; margin-bottom: 8px; color: #286f5c; font-size: 13px; font-weight: 700; }
+.written-answer-highlight strong { display: block; color: #115d49; font-size: clamp(28px, 5vw, 42px); line-height: 1.35; overflow-wrap: anywhere; }
+.sentence-delete-confirm { padding: 14px 16px; margin-bottom: 12px; border: 1px solid #edb6aa; border-radius: 10px; background: #fff4ef; color: #793425; }
+.sentence-delete-confirm p { margin: 0 0 10px; font-size: 14px; }
+.sentence-delete-confirm button { margin-right: 8px; padding: 7px 12px; border-radius: 8px; border: 1px solid #d4beb5; background: white; }
+.sentence-actions .danger, .sentence-editor .danger, .sentence-delete-confirm .danger { color: #a43225; }
+.moon-minimize-toggle { align-self: flex-end; padding: 5px 11px; border: 1px solid #d4ddec; border-radius: 10px; background: #fff; color: #596b82; font-size: 12px; box-shadow: 0 3px 12px #20365415; }
+.support-chatbot.is-minimized .moon-minimize-toggle { background: #edf2f9; padding: 8px 14px; }
+.support-chatbot.is-fullscreen .moon-minimize-toggle { display: none; }
+@media (max-width: 640px) { .word-set-settings { padding: 14px; } .word-set-settings .primary-button { width: 100%; } .word-set-heading { padding: 13px; } .word-card footer .study-marks { width: 100%; } }
+.moon-minimize-toggle { pointer-events: auto; }

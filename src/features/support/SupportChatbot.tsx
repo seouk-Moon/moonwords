@@ -258,6 +258,14 @@ function ChatText({ text, onOpenSentence }: { text: string; onOpenSentence?: (se
 
 export function SupportChatbot({ context, onOpenSentence }: { context: SupportContext; onOpenSentence?: (sentenceNumber: number) => void }) {
   const [open, setOpen] = useState(false);
+  const [minimized, setMinimized] = useState(false);
+  useEffect(() => { try { setMinimized(window.localStorage.getItem("moonwords:moon-minimized") === "true"); } catch {} }, []);
+  const toggleMinimized = () => {
+    const next = !minimized;
+    setMinimized(next);
+    if (next) { setOpen(false); setFullScreen(false); }
+    try { window.localStorage.setItem("moonwords:moon-minimized", String(next)); } catch {}
+  };
   const [fullScreen, setFullScreen] = useState(false);
   const [mode, setMode] = useState<SupportMode>("support");
   const [draft, setDraft] = useState("");
@@ -391,8 +399,8 @@ export function SupportChatbot({ context, onOpenSentence }: { context: SupportCo
   };
 
   return (
-    <div className={`support-chatbot ${open ? "is-open" : ""} ${fullScreen ? "is-fullscreen" : ""}`}>
-      {open && (
+    <div className={`support-chatbot ${open ? "is-open" : ""} ${fullScreen ? "is-fullscreen" : ""} ${minimized ? "is-minimized" : ""}`}>
+      {!minimized && open && (
         <section id="moonwords-support-chat" className="support-chat-panel" role="dialog" aria-label="Moon 챗봇" aria-modal={fullScreen}>
           <header className="support-chat-header">
             <span className="support-chat-avatar">M</span>
@@ -456,7 +464,8 @@ export function SupportChatbot({ context, onOpenSentence }: { context: SupportCo
         </section>
       )}
 
-      <button
+      <button type="button" className="moon-minimize-toggle" onClick={toggleMinimized} aria-label={minimized ? "Moon 다시 표시" : "Moon 아래로 접기"} aria-expanded={!minimized}>{minimized ? "Moon ↑" : "접기 ↓"}</button>
+      {!minimized && <button
         type="button"
         className="support-chat-launcher"
         onClick={() => { if (open) { setFullScreen(false); setOpen(false); } else setOpen(true); }}
@@ -466,7 +475,7 @@ export function SupportChatbot({ context, onOpenSentence }: { context: SupportCo
       >
         {open ? <span aria-hidden="true">×</span> : <ChatBubbleIcon />}
         {!open && <b>Moon</b>}
-      </button>
+      </button>}
     </div>
   );
 }

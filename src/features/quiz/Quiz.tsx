@@ -6,13 +6,14 @@ import type { ChoiceQuizQuestion, ComprehensionScope, FlashcardQuestion, Orderin
 import {
   MAX_CLOZE_GENERATION_COUNT,
   MAX_COMPREHENSION_GENERATION_COUNT,
-  missedComprehensionKey,
   readMissedComprehensionIds,
 } from "./quiz-utils";
+import { buildVocabularySets, quizStudyKey, readStudySettings, toggleStudyMark } from "../vocabulary/study-sets";
+import { readWordQuizRecentResults } from "../vocabulary/recent-results";
 import { QuizResult } from "./QuizResult";
 import { OrderingContextExcerpt } from "./OrderingContextExcerpt";
 
-export function Quiz({ doc, words, progress, generationJob, onClose, onGenerate, onProgress, onResult, onQuestionAnswered, onQuizComplete }: { doc: StudyDocument; words: VocabularyItem[]; progress: StudyProgress; generationJob: QuizGenerationJob | null; onClose: () => void; onGenerate: (type: QuizGenerationType, count: number) => void; onProgress: (next: StudyProgress) => void; onResult: (id: string | undefined, correct: boolean) => void; onQuestionAnswered: (mode: QuizMode, correct: boolean, options?: { wordId?: string; sentenceId?: number }) => void; onQuizComplete: (mode: QuizMode, score: number, questionCount: number) => void }) {
+export function Quiz({ doc, words, progress, generationJob, onClose, onGenerate, onProgress, onResult, onQuestionAnswered, onQuizComplete }: { doc: StudyDocument; words: VocabularyItem[]; progress: StudyProgress; generationJob: QuizGenerationJob | null; onClose: () => void; onGenerate: (type: QuizGenerationType, count: number) => void; onProgress: (next: StudyProgress) => void; onResult: (id: string | undefined, correct: boolean, options?: { quizKey?: string; sourceQuestionId?: number }) => void; onQuestionAnswered: (mode: QuizMode, correct: boolean, options?: { wordId?: string; sentenceId?: number }) => void; onQuizComplete: (mode: QuizMode, score: number, questionCount: number) => void }) {
   const [mode, setMode] = useState<QuizMode>("comprehension");
   const [index, setIndex] = useState(0);
   const [picked, setPicked] = useState<number | null>(null);
@@ -31,10 +32,14 @@ export function Quiz({ doc, words, progress, generationJob, onClose, onGenerate,
 
   const [vocabDirection, setVocabDirection] = useState<VocabDirection>("english-korean");
   const [vocabFormat, setVocabFormat] = useState<VocabFormat>("choice");
-  const [vocabUseAll, setVocabUseAll] = useState(false);
-  const [vocabCount, setVocabCount] = useState(10);
-  const [flashcardUseAll, setFlashcardUseAll] = useState(false);
-  const [flashcardBatchCount, setFlashcardBatchCount] = useState(10);
+  const [selectedSet, setSelectedSet] = useState("all");
+  const [reviewScope, setReviewScope] = useState<"all" | "incorrect" | "starred">("all");
+  const studySettings = readStudySettings(progress);
+  const vocabularySets = buildVocabularySets(words, studySettings.setSize);
+  const selectedWordIds = selectedSet === "all" ? words.map((word) => word.id) : vocabularySets[Number(selectedSet)]?.map((word) => word.id) ?? [];
+  const selectedWordSignature = JSON.stringify(selectedWordIds);
+  const selectedWordSnapshot = useMemo(() => JSON.parse(selectedWordSignature) as string[], [selectedWordSignature]);
+  const sessionQuestions = useRef<{ run: number; questions: QuizQuestion[] } | null>(null);
   const [generationCount, setGenerationCount] = useState(5);
   const [writtenAnswer, setWrittenAnswer] = useState("");
   const [writtenRevealed, setWrittenRevealed] = useState(false);
@@ -70,19 +75,23 @@ export function Quiz({ doc, words, progress, generationJob, onClose, onGenerate,
     () => JSON.parse(quizWordsSignature) as Array<Pick<VocabularyItem, "id" | "sentence_id" | "word" | "meaning" | "source_sentence" | "translation">>,
     [quizWordsSignature],
   );
+  // Saving an answer updates doc.last_studied_at, not the quiz content.
+  // Depending on the whole document would reshuffle questions and options
+  // while picked still refers to the question that was just answered.
+  const analysis = doc.analysis;
 
-  const questions = useMemo<QuizQuestion[]>(() => {
+  const preparedQuestions = useMemo<QuizQuestion[]>(() => {
     void quizRun;
     if (mode === "comprehension") return activeComprehensionIds.flatMap((questionId): ChoiceQuizQuestion[] => {
-      const question = doc.analysis.questions[questionId] as ReadingQuestion | undefined;
+      const question = analysis.questions[questionId] as ReadingQuestion | undefined;
       return question ? [{ kind: "choice", prompt: question.question, options: question.options, answer: question.answer, explanation: question.explanation, sourceQuestionId: questionId }] : [];
     });
     if (mode === "ordering") {
       const targetSentences = orderingScope === "all"
-        ? doc.analysis.sentences
+        ? analysis.sentences
         : orderingScope === "difficult"
-          ? doc.analysis.sentences.filter((sentence) => progress.bookmarked_sentence_ids.includes(sentence.id))
-          : doc.analysis.sentences.filter((sentence) => selectedSentenceIds.includes(sentence.id));
+          ? analysis.sentences.filter((sentence) => progress.bookmarked_sentence_ids.includes(sentence.id))
+          : analysis.sentences.filter((sentence) => selectedSentenceIds.includes(sentence.id));
 
       return shuffle(targetSentences).flatMap((sentence): OrderingQuizQuestion[] => {
         const protectedPhrases = [
@@ -91,10 +100,10 @@ export function Quiz({ doc, words, progress, generationJob, onClose, onGenerate,
         ];
         const exercise = buildOrderingExercise(sentence.english, protectedPhrases, shortenLongSentence);
         if (exercise.answerTokens.length < 2) return [];
-        const sentenceIndex = doc.analysis.sentences.findIndex((item) => item.id === sentence.id);
-        const contextBefore = sentenceIndex > 0 ? doc.analysis.sentences[sentenceIndex - 1]?.english : undefined;
-        const contextAfter = sentenceIndex >= 0 && sentenceIndex + 1 < doc.analysis.sentences.length
-          ? doc.analysis.sentences[sentenceIndex + 1]?.english
+        const sentenceIndex = analysis.sentences.findIndex((item) => item.id === sentence.id);
+        const contextBefore = sentenceIndex > 0 ? analysis.sentences[sentenceIndex - 1]?.english : undefined;
+        const contextAfter = sentenceIndex >= 0 && sentenceIndex + 1 < analysis.sentences.length
+          ? analysis.sentences[sentenceIndex + 1]?.english
           : undefined;
         return [{
           kind: "ordering",
@@ -114,26 +123,23 @@ export function Quiz({ doc, words, progress, generationJob, onClose, onGenerate,
       });
     }
     if (mode === "cloze") {
-      const savedWordQuestions = quizWordsSnapshot.map((word): ChoiceQuizQuestion => {
+      const savedWordQuestions = quizWordsSnapshot.filter((word) => selectedWordSnapshot.includes(word.id)).map((word): ChoiceQuizQuestion => {
         const blank = word.source_sentence.replace(new RegExp(`\\b${word.word.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`, "i"), "______");
         const alternatives = shuffle([...new Set(quizWordsSnapshot.filter((item) => item.id !== word.id).map((item) => item.word))]).slice(0, 3);
         const options = shuffle([word.word, ...alternatives]);
         return { kind: "choice", prompt: blank, options, answer: options.indexOf(word.word), explanation: `${word.word} — ${word.meaning}`, wordId: word.id, sourceSentence: word.source_sentence, testedPart: word.word };
       });
-      const generatedQuestions = (doc.analysis.cloze_questions ?? []).map((question): ChoiceQuizQuestion => {
+      const generatedQuestions = (analysis.cloze_questions ?? []).map((question): ChoiceQuizQuestion => {
         const answerText = question.options[question.answer] ?? "";
         const sourceSentence = answerText && /_{3,}/.test(question.question)
           ? question.question.replace(/_{3,}/, answerText)
           : undefined;
         return { kind: "choice", prompt: question.question, options: question.options, answer: question.answer, explanation: question.explanation, sourceSentence, testedPart: answerText || undefined };
       });
-      const pool = shuffle([...savedWordQuestions, ...generatedQuestions]);
-      return vocabUseAll ? pool : pool.slice(0, Math.min(Math.max(vocabCount, 1), pool.length));
+      return shuffle([...savedWordQuestions, ...(selectedSet === "all" || selectedSet === "generated" ? generatedQuestions : [])]);
     }
     if (!quizWordsSnapshot.length) return [];
-    const targetCount = mode === "flashcard" ? flashcardBatchCount : vocabCount;
-    const useAllWords = mode === "flashcard" ? flashcardUseAll : vocabUseAll;
-    const targetWords = shuffle(quizWordsSnapshot).slice(0, useAllWords ? quizWordsSnapshot.length : Math.min(Math.max(targetCount, 1), quizWordsSnapshot.length));
+    const targetWords = shuffle(quizWordsSnapshot.filter((word) => selectedWordSnapshot.includes(word.id)));
     if (mode === "flashcard") return targetWords.map((word): FlashcardQuestion => ({
       kind: "flashcard",
       front: vocabDirection === "english-korean" ? word.word : word.meaning,
@@ -154,7 +160,20 @@ export function Quiz({ doc, words, progress, generationJob, onClose, onGenerate,
       return { kind: "choice", prompt, options, answer: options.indexOf(answerText), explanation: word.source_sentence, wordId: word.id, sourceSentence: word.source_sentence, testedPart: word.word };
     });
     return [];
-  }, [mode, quizWordsSnapshot, doc, orderingScope, selectedSentenceIds, shortenLongSentence, progress.bookmarked_sentence_ids, activeComprehensionIds, vocabDirection, vocabFormat, vocabUseAll, vocabCount, flashcardUseAll, flashcardBatchCount, quizRun]);
+  }, [mode, quizWordsSnapshot, analysis, orderingScope, selectedSentenceIds, shortenLongSentence, progress.bookmarked_sentence_ids, activeComprehensionIds, vocabDirection, vocabFormat, selectedSet, selectedWordSnapshot, quizRun]);
+
+  const recentWordResults = readWordQuizRecentResults(progress);
+  const isIncorrect = (item: QuizQuestion) => {
+    const key = quizStudyKey(mode, item);
+    if (studySettings.incorrect.includes(key)) return true;
+    if (mode === "comprehension" && item.kind === "choice" && item.sourceQuestionId !== undefined) return missedComprehensionIds.includes(item.sourceQuestionId);
+    if ("wordId" in item && item.wordId) return recentWordResults[item.wordId]?.at(-1) === false;
+    return false;
+  };
+  const availableQuestions = preparedQuestions.filter((item) => reviewScope === "all" || (reviewScope === "incorrect" ? isIncorrect(item) : studySettings.starred.includes(quizStudyKey(mode, item))));
+  // Marking a question or saving a result must never change a running set.
+  if (!started || sessionQuestions.current?.run !== quizRun) sessionQuestions.current = { run: quizRun, questions: availableQuestions };
+  const questions = started ? sessionQuestions.current.questions : availableQuestions;
 
   useEffect(() => {
     if (!done || !started || answeredCount <= 0 || completedRunRef.current === quizRun) return;
@@ -168,14 +187,19 @@ export function Quiz({ doc, words, progress, generationJob, onClose, onGenerate,
     setWrittenAnswer(""); setWrittenRevealed(false); setWrittenGraded(null); setFlashcardFlipped(false); setFlashcardDragX(0);
   };
   const clearRun = () => { setIndex(0); setScore(0); setAnsweredCount(0); setDone(false); setRunMistakes([]); setFlashcardQueue([]); setFlashcardRetryByWord({}); setFlashcardTurn(0); suppressFlashcardClick.current = false; clearAnswer(); };
-  const prepareComprehension = (scope = comprehensionScope, useAll = comprehensionUseAll, count = comprehensionCount) => {
+  const prepareComprehension = (scope = comprehensionScope, useAll = comprehensionUseAll, count = comprehensionCount, review = reviewScope) => {
     const allIds = doc.analysis.questions.map((_, questionIndex) => questionIndex);
-    const pool = scope === "incorrect" ? missedComprehensionIds.filter((id) => allIds.includes(id)) : allIds;
+    const scopedIds = scope === "incorrect" ? missedComprehensionIds.filter((id) => allIds.includes(id)) : allIds;
+    const pool = scopedIds.filter((id) => {
+      const key = `comprehension:${doc.analysis.questions[id].question}`;
+      return review === "all" || (review === "starred" ? studySettings.starred.includes(key) : studySettings.incorrect.includes(key) || missedComprehensionIds.includes(id));
+    });
     const limit = useAll ? pool.length : Math.min(Math.max(count, 1), pool.length);
     setMode("comprehension"); setActiveComprehensionIds(shuffle(pool).slice(0, limit)); setQuizRun((value) => value + 1); clearRun();
   };
   const reset = (nextMode = mode) => {
     setStarted(false);
+    setReviewScope("all");
     if (nextMode === "comprehension") { prepareComprehension(); return; }
     setMode(nextMode); setQuizRun((value) => value + 1); clearRun();
   };
@@ -195,7 +219,6 @@ export function Quiz({ doc, words, progress, generationJob, onClose, onGenerate,
       : [...new Set([...missedComprehensionIds, questionId])];
     if (next.length === missedComprehensionIds.length && next.every((id, itemIndex) => id === missedComprehensionIds[itemIndex])) return;
     setMissedComprehensionIds(next);
-    onProgress({ ...progress, sentence_notes: { ...(progress.sentence_notes ?? {}), [missedComprehensionKey]: JSON.stringify(next) }, last_studied_at: new Date().toISOString() });
   };
   const updateOrderingScope = (scope: OrderingScope) => { setStarted(false); setOrderingScope(scope); setQuizRun((value) => value + 1); clearRun(); };
   const updateSentenceSelection = (sentenceId: number) => {
@@ -223,7 +246,7 @@ export function Quiz({ doc, words, progress, generationJob, onClose, onGenerate,
       testedPart: question.testedPart,
     });
     if (question.sourceQuestionId !== undefined) saveMissedComprehensionIds(question.sourceQuestionId, correct);
-    onResult(question.wordId, correct);
+    onResult(question.wordId, correct, { quizKey: quizStudyKey(mode, question), sourceQuestionId: question.sourceQuestionId });
     onQuestionAnswered(mode, correct, { wordId: question.wordId });
   };
   const gradeWritten = (correct: boolean) => {
@@ -241,13 +264,13 @@ export function Quiz({ doc, words, progress, generationJob, onClose, onGenerate,
       sourceSentence: question.sourceSentence,
       testedPart: question.testedPart,
     });
-    onResult(question.wordId, correct);
+    onResult(question.wordId, correct, { quizKey: quizStudyKey(mode, question) });
     onQuestionAnswered(mode, correct, { wordId: question.wordId });
   };
   const gradeFlashcard = (correct: boolean) => {
     const question = flashcardQueue[0];
     if (!question || !flashcardFlipped) return;
-    onResult(question.wordId, correct);
+    onResult(question.wordId, correct, { quizKey: quizStudyKey(mode, question) });
     onQuestionAnswered(mode, correct, { wordId: question.wordId });
     setAnsweredCount((value) => value + 1);
     // Always start the next/retried card from the front face.
@@ -292,6 +315,7 @@ export function Quiz({ doc, words, progress, generationJob, onClose, onGenerate,
     const correct = answerTokens.every((token, tokenIndex) => token === question.answerTokens[tokenIndex]);
     setOrderingCorrect(correct); setOrderingSubmitted(true);
     setAnsweredCount((value) => value + 1);
+    onResult(undefined, correct, { quizKey: quizStudyKey(mode, question) });
     onQuestionAnswered(mode, correct, { sentenceId: question.sentenceId });
     if (correct) setScore((value) => value + 1);
     else rememberMistake({
@@ -336,27 +360,35 @@ export function Quiz({ doc, words, progress, generationJob, onClose, onGenerate,
     }
   };
   const retryIncorrect = () => {
-    if (mode !== "comprehension" || !missedComprehensionIds.length) return;
-    setComprehensionScope("incorrect");
-    setComprehensionUseAll(true);
-    prepareComprehension("incorrect", true, missedComprehensionIds.length);
+    setReviewScope("incorrect");
+    if (mode === "comprehension") {
+      setComprehensionScope("all");
+      prepareComprehension("all", true, doc.analysis.questions.length, "incorrect");
+    } else { setQuizRun((value) => value + 1); clearRun(); }
+    if (mode === "flashcard") setFlashcardQueue(preparedQuestions.filter((item): item is FlashcardQuestion => item.kind === "flashcard" && isIncorrect(item)));
     setStarted(true);
   };
   const shuffleAllAgain = () => {
+    setReviewScope("all");
     if (mode === "comprehension") {
       setComprehensionScope("all");
-      prepareComprehension("all", comprehensionUseAll, comprehensionCount);
+      prepareComprehension("all", comprehensionUseAll, comprehensionCount, "all");
       setStarted(true);
       return;
     }
-    startQuiz();
+    if (mode === "flashcard") {
+      setQuizRun((value) => value + 1); clearRun();
+      setFlashcardQueue(preparedQuestions.filter((item): item is FlashcardQuestion => item.kind === "flashcard"));
+      setStarted(true);
+    } else startQuiz();
   };
   const returnToQuizHome = () => {
     setStarted(false);
+    setReviewScope("all");
     setMode("comprehension");
     setComprehensionScope("all");
     setComprehensionUseAll(true);
-    prepareComprehension("all", true, doc.analysis.questions.length);
+    prepareComprehension("all", true, doc.analysis.questions.length, "all");
   };
 
   const question = mode === "flashcard" && started ? flashcardQueue[0] : questions[index];
@@ -364,14 +396,14 @@ export function Quiz({ doc, words, progress, generationJob, onClose, onGenerate,
   const availableOrderingTokens = question?.kind === "ordering" ? question.shuffledTokens.filter((token) => !orderedTokenIds.includes(token.id)) : [];
   const currentFlashcardRetryCount = question?.kind === "flashcard" ? (flashcardRetryByWord[question.wordId] ?? 0) : 0;
   const availableComprehensionCount = comprehensionScope === "incorrect" ? missedComprehensionIds.length : doc.analysis.questions.length;
-  const emptyTitle = mode === "comprehension" && comprehensionScope === "incorrect" ? "현재 저장된 본문 내용 퀴즈 오답이 없어요." : mode === "ordering" ? orderingScope === "difficult" ? "‘어려운 문장’으로 체크한 문장이 없어요." : "출제할 문장을 선택해 주세요." : "단어 퀴즈를 만들 단어가 없어요.";
-  const emptyDescription = mode === "comprehension" ? "전체 문제에서 새로 풀거나, 틀린 문제가 생기면 오답만 다시 풀 수 있어요." : mode === "ordering" ? orderingScope === "difficult" ? "본문 학습에서 문장에 ‘어려운 문장 체크’를 표시해 주세요." : "직접 선택에서 한 문장 이상 골라 주세요." : "본문에서 단어를 저장한 뒤 다시 시작해 주세요.";
+  const emptyTitle = reviewScope === "starred" ? "선택한 범위에 별표한 문제가 없어요." : reviewScope === "incorrect" ? "선택한 범위에 남은 오답이 없어요." : mode === "comprehension" && comprehensionScope === "incorrect" ? "현재 저장된 본문 내용 퀴즈 오답이 없어요." : mode === "ordering" ? orderingScope === "difficult" ? "‘어려운 문장’으로 체크한 문장이 없어요." : "출제할 문장을 선택해 주세요." : "단어 퀴즈를 만들 단어가 없어요.";
+  const emptyDescription = reviewScope !== "all" ? "다른 세트나 전체 문제를 선택하세요. 퀴즈의 ☆ 버튼으로 별표할 수 있어요." : mode === "comprehension" ? "전체 문제에서 새로 풀거나, 틀린 문제가 생기면 오답만 다시 풀 수 있어요." : mode === "ordering" ? orderingScope === "difficult" ? "본문 학습에서 문장에 ‘어려운 문장 체크’를 표시해 주세요." : "직접 선택에서 한 문장 이상 골라 주세요." : "본문에서 단어를 저장한 뒤 다시 시작해 주세요.";
 
   const generationRunning = generationJob?.status === "running";
 
   return <main className="tool-page quiz-page" aria-label="학습 퀴즈">
     <div className="tool-heading"><div><span className="eyebrow">ACTIVE RECALL</span><h1>학습 퀴즈</h1><p>{doc.title} · 본문 내용 퀴즈, 단어 퀴즈, 빈칸, 플래시카드와 어순 배열을 연습하세요.</p></div><button className="outline-button" onClick={onClose}>본문으로</button></div>
-    <div className="quiz-modes"><button className={mode === "comprehension" ? "active" : ""} onClick={() => { setStarted(false); prepareComprehension(); }}>본문 내용 퀴즈</button><button className={mode === "meaning" ? "active" : ""} onClick={() => reset("meaning")}>단어 퀴즈</button><button className={mode === "flashcard" ? "active" : ""} onClick={() => reset("flashcard")}>플래시카드</button><button className={mode === "cloze" ? "active" : ""} onClick={() => reset("cloze")}>빈칸 완성</button><button className={mode === "ordering" ? "active" : ""} onClick={() => reset("ordering")}>어순 배열</button></div>
+    <div className="quiz-modes"><button className={mode === "comprehension" ? "active" : ""} onClick={() => { setStarted(false); setReviewScope("all"); prepareComprehension(comprehensionScope, comprehensionUseAll, comprehensionCount, "all"); }}>본문 내용 퀴즈</button><button className={mode === "meaning" ? "active" : ""} onClick={() => reset("meaning")}>단어 퀴즈</button><button className={mode === "flashcard" ? "active" : ""} onClick={() => reset("flashcard")}>플래시카드</button><button className={mode === "cloze" ? "active" : ""} onClick={() => reset("cloze")}>빈칸 완성</button><button className={mode === "ordering" ? "active" : ""} onClick={() => reset("ordering")}>어순 배열</button></div>
 
     {!started && mode === "comprehension" && <section className="quiz-settings">
       <div className="quiz-setting-row"><strong>출제 범위</strong><div className="scope-buttons"><button className={comprehensionScope === "all" ? "active" : ""} onClick={() => { setComprehensionScope("all"); prepareComprehension("all"); }}>전체 문제</button><button className={comprehensionScope === "incorrect" ? "active" : ""} onClick={() => { setComprehensionScope("incorrect"); prepareComprehension("incorrect"); }}>오답만 <b>{missedComprehensionIds.length}</b></button></div></div>
@@ -383,10 +415,8 @@ export function Quiz({ doc, words, progress, generationJob, onClose, onGenerate,
     {!started && (mode === "meaning" || mode === "flashcard" || mode === "cloze") && <section className="quiz-settings compact">
       {(mode === "meaning" || mode === "flashcard") && <div className="quiz-setting-row"><strong>학습 방향</strong><div className="scope-buttons"><button className={vocabDirection === "english-korean" ? "active" : ""} onClick={() => { setVocabDirection("english-korean"); reset(mode); }}>영어 → 한글</button><button className={vocabDirection === "korean-english" ? "active" : ""} onClick={() => { setVocabDirection("korean-english"); reset(mode); }}>한글 → 영어</button></div></div>}
       {mode === "meaning" && <div className="quiz-setting-row"><strong>답변 방식</strong><div className="scope-buttons"><button className={vocabFormat === "choice" ? "active" : ""} onClick={() => { setVocabFormat("choice"); reset("meaning"); }}>선택형</button><button className={vocabFormat === "written" ? "active" : ""} onClick={() => { setVocabFormat("written"); reset("meaning"); }}>서술형</button></div></div>}
-      {mode === "flashcard" ? <>
-        <div className="quiz-setting-row"><strong>묶음당 카드</strong><label className="all-count-toggle"><input type="checkbox" checked={flashcardUseAll} onChange={(event) => { setFlashcardUseAll(event.target.checked); reset("flashcard"); }} />전체를 한 묶음</label><label className="number-picker"><input type="number" min="1" max={Math.max(1, words.length)} disabled={flashcardUseAll} value={Math.min(flashcardBatchCount, Math.max(1, words.length))} onChange={(event) => { const nextCount = Math.max(1, Math.min(Math.max(1, words.length), Number(event.target.value) || 1)); setFlashcardBatchCount(nextCount); reset("flashcard"); }} />개</label><button className="reshuffle-button" onClick={() => reset("flashcard")}>↻ 다시 섞기</button></div>
-        <p className="scope-summary">저장 단어 {words.length}개 · {flashcardUseAll ? `전체 ${words.length}장을 한 묶음으로 출제합니다.` : `한 묶음에 ${Math.min(flashcardBatchCount, Math.max(1, words.length))}장씩 출제합니다.`}</p>
-      </> : <div className="quiz-setting-row"><strong>{mode === "cloze" ? "문제 수" : "단어 수"}</strong><label className="all-count-toggle"><input type="checkbox" checked={vocabUseAll} onChange={(event) => { setVocabUseAll(event.target.checked); reset(mode); }} />전체</label><label className="number-picker"><input type="number" min="1" max={Math.max(1, mode === "cloze" ? words.length + (doc.analysis.cloze_questions?.length ?? 0) : words.length)} disabled={vocabUseAll} value={Math.min(vocabCount, Math.max(1, mode === "cloze" ? words.length + (doc.analysis.cloze_questions?.length ?? 0) : words.length))} onChange={(event) => { setVocabCount(Math.max(1, Number(event.target.value))); reset(mode); }} />개</label><button className="reshuffle-button" onClick={() => reset(mode)}>↻ 다시 섞기</button></div>}
+      <div className="quiz-setting-row"><strong>단어장 세트</strong><label><select aria-label="출제할 단어장 세트" value={selectedSet} onChange={(event) => { setSelectedSet(event.target.value); reset(mode); }}><option value="all">전체 세트</option>{vocabularySets.map((set, setIndex) => <option key={setIndex} value={setIndex}>세트 {setIndex + 1} · {set.length}개</option>)}{mode === "cloze" && <option value="generated">AI 추가 문제만</option>}</select></label><button className="reshuffle-button" onClick={() => reset(mode)}>↻ 다시 섞기</button></div>
+      <p className="scope-summary">단어장에서 정한 {studySettings.setSize}개 단위 세트를 그대로 사용합니다.{mode === "cloze" && selectedSet === "all" ? " 전체 세트에는 AI 추가 문제도 포함됩니다." : ""}</p>
       {mode === "cloze" && <div className="quiz-setting-row generation-row"><strong>문제 추가</strong><label className="number-picker"><input type="number" min="1" max={MAX_CLOZE_GENERATION_COUNT} value={generationCount} onChange={(event) => setGenerationCount(Math.max(1, Math.min(MAX_CLOZE_GENERATION_COUNT, Number(event.target.value) || 1)))} />개</label><button className="generate-button" disabled={generationRunning} onClick={() => onGenerate("cloze", generationCount)}>{generationRunning ? "생성 진행 중…" : "＋ 빈칸 문제 추가 생성"}</button><small>본문의 문장과 핵심 어휘로 새 문제를 만듭니다.</small></div>}
     </section>}
 
@@ -397,6 +427,8 @@ export function Quiz({ doc, words, progress, generationJob, onClose, onGenerate,
       {orderingScope === "selected" && <div className="sentence-picker"><header><span>원하는 문장을 골라 주세요.</span><div><button onClick={() => { setSelectedSentenceIds(doc.analysis.sentences.map((sentence) => sentence.id)); reset("ordering"); }}>전체 선택</button><button onClick={() => { setSelectedSentenceIds([]); reset("ordering"); }}>선택 해제</button></div></header>{doc.analysis.sentences.map((sentence) => <label key={sentence.id}><input type="checkbox" checked={selectedSentenceIds.includes(sentence.id)} onChange={() => updateSentenceSelection(sentence.id)} /><span><b>{sentence.id}</b>{sentence.english}</span></label>)}</div>}
     </section>}
 
+    {!started && <section className="quiz-settings compact"><div className="quiz-setting-row"><strong>복습 범위</strong><div className="scope-buttons">{([ ["all", "전체 문제"], ["incorrect", "오답만 풀기"], ["starred", "별표한 문제만"] ] as const).map(([scope, label]) => <button key={scope} className={reviewScope === scope ? "active" : ""} onClick={() => { setReviewScope(scope); if (mode === "comprehension") prepareComprehension(comprehensionScope, comprehensionUseAll, comprehensionCount, scope); else clearRun(); }}>{label}</button>)}</div></div><p className="scope-summary">선택한 세트·출제 범위 안에서 {questions.length}문제를 풀 수 있어요.</p></section>}
+
     {!started && <section className="quiz-start-panel">
       <div><span>준비가 되면 시작하세요</span><b>설정을 확인한 뒤 문제를 표시합니다.</b></div>
       <button className="primary-button" onClick={startQuiz} disabled={!questions.length}>{questions.length ? `${questions.length}문제 시작 →` : "출제할 문제가 없어요"}</button>
@@ -404,12 +436,14 @@ export function Quiz({ doc, words, progress, generationJob, onClose, onGenerate,
 
     {started && <div className="quiz-session-toolbar"><span>퀴즈 진행 중 · {questions.length}문제</span><button onClick={() => { setStarted(false); clearRun(); }}>설정 변경</button></div>}
 
+    {started && !done && question && <div className="quiz-question-marks study-marks"><span>문제 표시</span><button aria-label="현재 문제 별표" aria-pressed={studySettings.starred.includes(quizStudyKey(mode, question))} onClick={() => onProgress(toggleStudyMark(progress, quizStudyKey(mode, question), "starred"))}>{studySettings.starred.includes(quizStudyKey(mode, question)) ? "★" : "☆"} 별표</button><button aria-label="현재 문제 더 중요 표시" aria-pressed={studySettings.important.includes(quizStudyKey(mode, question))} onClick={() => onProgress(toggleStudyMark(progress, quizStudyKey(mode, question), "important"))}>! 더 중요</button></div>}
+
     {started && (!questions.length ? <div className="empty-state"><b>{emptyTitle}</b><p>{emptyDescription}</p></div> : done ? <QuizResult
       score={score}
       total={questions.length}
       summary={score === questions.length && runMistakes.length === 0 ? "완벽해요!" : mode === "comprehension" ? `현재 본문 내용 퀴즈 오답 ${missedComprehensionIds.length}개가 저장되어 있어요.` : mode === "ordering" ? "오답을 확인한 뒤 다시 배열해 보세요." : mode === "flashcard" ? "모른다고 표시한 카드는 남은 카드 뒤로 보내 다시 확인했어요." : "틀린 단어와 정답을 바로 확인할 수 있어요."}
       mistakes={runMistakes}
-      canRetryIncorrect={mode === "comprehension" && missedComprehensionIds.length > 0}
+      canRetryIncorrect={preparedQuestions.some(isIncorrect)}
       onRetryIncorrect={retryIncorrect}
       onShuffleAll={shuffleAllAgain}
       onHome={returnToQuizHome}
@@ -420,6 +454,6 @@ export function Quiz({ doc, words, progress, generationJob, onClose, onGenerate,
       <div className={`ordering-answer ${orderingSubmitted ? orderingCorrect ? "correct" : "wrong" : ""}`}>{selectedOrderingTokens.length ? selectedOrderingTokens.map((token) => <button key={token.id} disabled={orderingSubmitted} onClick={() => setOrderedTokenIds((ids) => ids.filter((id) => id !== token.id))}>{token.text}</button>) : <span>아래 단어를 순서대로 선택하세요.</span>}</div>
       <div className="ordering-bank">{availableOrderingTokens.map((token) => <button key={token.id} disabled={orderingSubmitted} onClick={() => setOrderedTokenIds((ids) => [...ids, token.id])}>{token.text}</button>)}</div>
       {!orderingSubmitted ? <div className="ordering-actions"><button onClick={() => setOrderedTokenIds([])} disabled={!orderedTokenIds.length}>초기화</button><button className="primary-button" onClick={submitOrdering} disabled={orderedTokenIds.length !== question.answerTokens.length}>채점하기</button></div> : <div className="answer-note"><b>{orderingCorrect ? "정답입니다" : "정답을 확인하세요"}</b><p>{question.answerTokens.join(" ")}</p><button onClick={next}>{index + 1 === questions.length ? "결과 보기" : "다음 문제 →"}</button></div>}
-    </section> : question?.kind === "written" ? <section className="quiz-card written-card"><header><span>{index + 1} / {questions.length}</span><div><i style={{ width: `${((index + 1) / questions.length) * 100}%` }} /></div><b>{score} correct</b></header><h2>{question.prompt}</h2><div className="written-response"><input autoFocus value={writtenAnswer} disabled={writtenRevealed} onChange={(event) => setWrittenAnswer(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter" && writtenAnswer.trim()) setWrittenRevealed(true); }} placeholder="정답을 직접 입력하세요" /><button className="primary-button" disabled={!writtenAnswer.trim() || writtenRevealed} onClick={() => setWrittenRevealed(true)}>정답 확인</button></div>{writtenRevealed && <div className="answer-note written-note"><b>정답: {question.answerText}</b><p>내 답: {writtenAnswer}</p><p className="example-note">{question.explanation}</p>{writtenGraded === null ? <div className="self-grade"><span>내 답을 스스로 채점해 주세요.</span><button onClick={() => gradeWritten(false)}>틀렸어요</button><button className="correct-button" onClick={() => gradeWritten(true)}>맞았어요</button></div> : <><strong>{writtenGraded ? "정답으로 기록했습니다." : "오답으로 기록했습니다."}</strong><button onClick={next}>{index + 1 === questions.length ? "결과 보기" : "다음 문제 →"}</button></>}</div>}</section> : question?.kind === "flashcard" ? <section className="quiz-card flashcard-wrap"><header><span>남은 {flashcardQueue.length} / {questions.length}</span><div><i style={{ width: `${questions.length ? (score / questions.length) * 100 : 0}%` }} /></div><b>{score} memorized</b></header><div className="flashcard-stage"><span className="swipe-label retry" style={{ opacity: Math.max(0, -flashcardDragX / 90) }}>다시 보기</span><span className="swipe-label learned" style={{ opacity: Math.max(0, flashcardDragX / 90) }}>외웠어요</span><div key={`${question.wordId}:${flashcardTurn}`} role="button" tabIndex={0} className={`flashcard ${flashcardFlipped ? "flipped" : ""}`} style={{ transform: `translateX(${flashcardDragX}px) rotate(${flashcardDragX / 18}deg)` }} onClick={() => { if (suppressFlashcardClick.current) { suppressFlashcardClick.current = false; return; } if (!flashcardFlipped) setFlashcardFlipped(true); }} onKeyDown={(event) => { if ((event.key === "Enter" || event.key === " ") && !flashcardFlipped) setFlashcardFlipped(true); }} onPointerDown={beginFlashcardSwipe} onPointerMove={moveFlashcardSwipe} onPointerUp={endFlashcardSwipe} onPointerCancel={endFlashcardSwipe}><span>{flashcardFlipped ? "BACK" : "FRONT"}</span><strong>{flashcardFlipped ? question.back : question.front}</strong>{flashcardFlipped ? <small>{question.example}<em>{question.translation}</em></small> : <small>카드를 눌러 답을 확인하세요.</small>}</div></div><p className="flashcard-swipe-help">답을 확인한 뒤 왼쪽은 ‘다시 보기’, 오른쪽은 ‘외웠어요’로 밀어 주세요.{currentFlashcardRetryCount > 0 && <b> · 이 카드 재도전 {currentFlashcardRetryCount}회</b>}</p>{flashcardFlipped && <div className="flashcard-actions"><button onClick={() => gradeFlashcard(false)}>← 다시 보기</button><button className="primary-button" onClick={() => gradeFlashcard(true)}>외웠어요 →</button></div>}</section> : question?.kind === "choice" ? <section className="quiz-card"><header><span>{index + 1} / {questions.length}</span><div><i style={{ width: `${((index + 1) / questions.length) * 100}%` }} /></div><b>{score} correct</b></header><h2>{question.prompt}</h2><div className="options">{question.options.map((option, optionIndex) => <button key={`${option}-${optionIndex}`} className={picked === null ? "" : optionIndex === question.answer ? "correct" : optionIndex === picked ? "wrong" : "muted"} onClick={() => answer(optionIndex)}><span>{String.fromCharCode(65 + optionIndex)}</span>{option}</button>)}</div>{picked !== null && <div className="answer-note"><b>{picked === question.answer ? "정답입니다" : "정답을 확인하세요"}</b><p>{question.explanation}</p><button onClick={next}>{index + 1 === questions.length ? "결과 보기" : "다음 문제 →"}</button></div>}</section> : null)}
+    </section> : question?.kind === "written" ? <section className="quiz-card written-card"><header><span>{index + 1} / {questions.length}</span><div><i style={{ width: `${((index + 1) / questions.length) * 100}%` }} /></div><b>{score} correct</b></header><h2>{question.prompt}</h2><div className="written-response"><input autoFocus value={writtenAnswer} disabled={writtenRevealed} onChange={(event) => setWrittenAnswer(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter" && writtenAnswer.trim()) setWrittenRevealed(true); }} placeholder="정답을 직접 입력하세요" /><button className="primary-button" disabled={!writtenAnswer.trim() || writtenRevealed} onClick={() => setWrittenRevealed(true)}>정답 확인</button></div>{writtenRevealed && <div className="answer-note written-note"><div className="written-answer-highlight"><small>정답</small><strong>{question.answerText}</strong></div><p>내 답: {writtenAnswer}</p><p className="example-note">{question.explanation}</p>{writtenGraded === null ? <div className="self-grade"><span>내 답을 스스로 채점해 주세요.</span><button onClick={() => gradeWritten(false)}>틀렸어요</button><button className="correct-button" onClick={() => gradeWritten(true)}>맞았어요</button></div> : <><strong>{writtenGraded ? "정답으로 기록했습니다." : "오답으로 기록했습니다."}</strong><button onClick={next}>{index + 1 === questions.length ? "결과 보기" : "다음 문제 →"}</button></>}</div>}</section> : question?.kind === "flashcard" ? <section className="quiz-card flashcard-wrap"><header><span>남은 {flashcardQueue.length} / {questions.length}</span><div><i style={{ width: `${questions.length ? (score / questions.length) * 100 : 0}%` }} /></div><b>{score} memorized</b></header><div className="flashcard-stage"><span className="swipe-label retry" style={{ opacity: Math.max(0, -flashcardDragX / 90) }}>다시 보기</span><span className="swipe-label learned" style={{ opacity: Math.max(0, flashcardDragX / 90) }}>외웠어요</span><div key={`${question.wordId}:${flashcardTurn}`} role="button" tabIndex={0} className={`flashcard ${flashcardFlipped ? "flipped" : ""}`} style={{ transform: `translateX(${flashcardDragX}px) rotate(${flashcardDragX / 18}deg)` }} onClick={() => { if (suppressFlashcardClick.current) { suppressFlashcardClick.current = false; return; } if (!flashcardFlipped) setFlashcardFlipped(true); }} onKeyDown={(event) => { if ((event.key === "Enter" || event.key === " ") && !flashcardFlipped) setFlashcardFlipped(true); }} onPointerDown={beginFlashcardSwipe} onPointerMove={moveFlashcardSwipe} onPointerUp={endFlashcardSwipe} onPointerCancel={endFlashcardSwipe}><span>{flashcardFlipped ? "BACK" : "FRONT"}</span><strong>{flashcardFlipped ? question.back : question.front}</strong>{flashcardFlipped ? <small>{question.example}<em>{question.translation}</em></small> : <small>카드를 눌러 답을 확인하세요.</small>}</div></div><p className="flashcard-swipe-help">답을 확인한 뒤 왼쪽은 ‘다시 보기’, 오른쪽은 ‘외웠어요’로 밀어 주세요.{currentFlashcardRetryCount > 0 && <b> · 이 카드 재도전 {currentFlashcardRetryCount}회</b>}</p>{flashcardFlipped && <div className="flashcard-actions"><button onClick={() => gradeFlashcard(false)}>← 다시 보기</button><button className="primary-button" onClick={() => gradeFlashcard(true)}>외웠어요 →</button></div>}</section> : question?.kind === "choice" ? <section className="quiz-card"><header><span>{index + 1} / {questions.length}</span><div><i style={{ width: `${((index + 1) / questions.length) * 100}%` }} /></div><b>{score} correct</b></header><h2>{question.prompt}</h2><div className="options">{question.options.map((option, optionIndex) => <button key={`${option}-${optionIndex}`} className={picked === null ? "" : optionIndex === question.answer ? "correct" : optionIndex === picked ? "wrong" : "muted"} onClick={() => answer(optionIndex)}><span>{String.fromCharCode(65 + optionIndex)}</span>{option}</button>)}</div>{picked !== null && <div className="answer-note"><b>{picked === question.answer ? "정답입니다" : "정답을 확인하세요"}</b><p>{question.explanation}</p><button onClick={next}>{index + 1 === questions.length ? "결과 보기" : "다음 문제 →"}</button></div>}</section> : null)}
   </main>;
 }

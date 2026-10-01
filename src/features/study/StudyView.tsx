@@ -18,6 +18,7 @@ type Props = {
   onRenameDocument: (documentId: string, title: string) => Promise<void>;
   onUpdateAnalysis: (documentId: string, analysis: DocumentAnalysis) => Promise<void>;
   onUpdateSentence: (documentId: string, sentenceId: number, english: string, korean: string) => Promise<void>;
+  onDeleteSentence: (documentId: string, sentenceId: number) => Promise<void>;
   onFullListeningComplete: () => void;
 };
 
@@ -43,7 +44,7 @@ const collectSuggestedWords = (sentences: DocumentAnalysis["sentences"], words: 
   });
 };
 
-export function StudyView({ doc, words, progress, onSaveWord, onDeleteWord, onProgress, onRenameDocument, onUpdateAnalysis, onUpdateSentence, onFullListeningComplete }: Props) {
+export function StudyView({ doc, words, progress, onSaveWord, onDeleteWord, onProgress, onRenameDocument, onUpdateAnalysis, onUpdateSentence, onDeleteSentence, onFullListeningComplete }: Props) {
   const [selected, setSelected] = useState<SelectedWord | null>(null);
   const [loadingMeaning, setLoadingMeaning] = useState(false);
   const [lookupHighlight, setLookupHighlight] = useState<{ word: string; sentenceId: number; status: "loading" | "done" } | null>(null);
@@ -64,6 +65,7 @@ export function StudyView({ doc, words, progress, onSaveWord, onDeleteWord, onPr
   const [sentenceEnglishDraft, setSentenceEnglishDraft] = useState("");
   const [sentenceKoreanDraft, setSentenceKoreanDraft] = useState("");
   const [sentenceSaving, setSentenceSaving] = useState(false);
+  const [deletingSentenceId, setDeletingSentenceId] = useState<number | null>(null);
   const [sentenceError, setSentenceError] = useState("");
   const [wordReviewQueue, setWordReviewQueue] = useState<SuggestedWord[]>([]);
   const [showWordReview, setShowWordReview] = useState(false);
@@ -536,6 +538,20 @@ export function StudyView({ doc, words, progress, onSaveWord, onDeleteWord, onPr
     }
   };
 
+  const confirmSentenceDelete = async (sentenceId: number) => {
+    setSentenceSaving(true);
+    setSentenceError("");
+    if (window.speechSynthesis) stopListening();
+    try {
+      await onDeleteSentence(doc.id, sentenceId);
+      setDeletingSentenceId(null);
+      setEditingSentenceId(null);
+      setSelected(null);
+    } catch (error) {
+      setSentenceError(error instanceof Error ? error.message : "문장을 삭제하지 못했습니다.");
+    } finally { setSentenceSaving(false); }
+  };
+
   const openWordReview = (items: SuggestedWord[] = suggestedWords, scopeLabel = "전체 본문") => {
     setWordReviewQueue(items);
     setWordReviewDrag(0);
@@ -684,15 +700,16 @@ export function StudyView({ doc, words, progress, onSaveWord, onDeleteWord, onPr
               return <div className={`sentence-pair ${difficultSentences.includes(sentence.id) ? "difficult" : ""} ${speakingSentenceIndex === sourceIndex || sentenceIsActive ? "listening" : ""}`} data-sentence={sentence.id} data-sentence-index={sourceIndex} key={`${sentence.id}-${sourceIndex}`}>
                 <div className="sentence-number">{sentence.marked && <span className="source-mark" title="원본 밑줄 표시">★</span>}{displayNumber}</div>
                 <div className="sentence-copy">
+                  {deletingSentenceId === sentence.id && <div className="sentence-delete-confirm" role="alert"><p>이 문장을 본문에서 삭제할까요? 저장한 단어와 원본 파일은 유지됩니다.</p>{sentenceError && <p>{sentenceError}</p>}<button type="button" disabled={sentenceSaving} onClick={() => setDeletingSentenceId(null)}>취소</button><button type="button" className="danger" disabled={sentenceSaving} onClick={() => void confirmSentenceDelete(sentence.id)}>{sentenceSaving ? "삭제 중…" : "문장 삭제 확인"}</button></div>}
                   {editingSentenceId === sentence.id ? <div className="sentence-editor">
                     <label>영어 문장<textarea value={sentenceEnglishDraft} onChange={(event) => setSentenceEnglishDraft(event.target.value)} /></label>
                     <label>한국어 번역<textarea value={sentenceKoreanDraft} onChange={(event) => setSentenceKoreanDraft(event.target.value)} /></label>
                     {sentenceError && <p className="sentence-edit-error" role="alert">{sentenceError}</p>}
-                    <div><button type="button" disabled={sentenceSaving || !sentenceEnglishDraft.trim()} onClick={() => void saveSentenceEdit()}>{sentenceSaving ? "저장 중…" : "저장"}</button><button type="button" disabled={sentenceSaving} onClick={() => setEditingSentenceId(null)}>취소</button></div>
+                    <div><button type="button" disabled={sentenceSaving || !sentenceEnglishDraft.trim()} onClick={() => void saveSentenceEdit()}>{sentenceSaving ? "저장 중…" : "저장"}</button><button type="button" disabled={sentenceSaving} onClick={() => setEditingSentenceId(null)}>취소</button><button type="button" className="danger" disabled={sentenceSaving} onClick={() => setDeletingSentenceId(sentence.id)}>문장 삭제</button></div>
                   </div> : <>
                     <p className="english"><HighlightedEnglish text={sentence.english} words={sentenceWords} onOpen={openSavedWord} transientWord={lookupHighlight?.sentenceId === sentence.id ? lookupHighlight.word : undefined} transientStatus={lookupHighlight?.sentenceId === sentence.id ? lookupHighlight.status : undefined} onTransientDismiss={() => setLookupHighlight(null)} /></p>
                     <p className="korean">{sentence.korean}</p>
-                    <div className="sentence-actions"><button className={sentenceIsActive ? "sentence-listen-active" : ""} aria-pressed={sentenceIsActive} onClick={() => speakSentence(sourceIndex, sentence.english)}><PlaybackIcon name={sentenceIsPlaying ? "pause" : "play"} />{sentenceIsPlaying ? "일시정지" : sentenceIsActive ? "계속 듣기" : "듣기"}</button><button onClick={() => toggleDifficultSentence(sentence.id)}>{difficultSentences.includes(sentence.id) ? "⚑ 어려운 문장 해제" : "⚐ 어려운 문장 체크"}</button><button type="button" onClick={() => beginSentenceEdit(sentence.id, sentence.english, sentence.korean)}>✎ 문장 수정</button></div>
+                    <div className="sentence-actions"><button className={sentenceIsActive ? "sentence-listen-active" : ""} aria-pressed={sentenceIsActive} onClick={() => speakSentence(sourceIndex, sentence.english)}><PlaybackIcon name={sentenceIsPlaying ? "pause" : "play"} />{sentenceIsPlaying ? "일시정지" : sentenceIsActive ? "계속 듣기" : "듣기"}</button><button onClick={() => toggleDifficultSentence(sentence.id)}>{difficultSentences.includes(sentence.id) ? "⚑ 어려운 문장 해제" : "⚐ 어려운 문장 체크"}</button><button type="button" onClick={() => beginSentenceEdit(sentence.id, sentence.english, sentence.korean)}>✎ 문장 수정</button><button type="button" className="danger" disabled={sentenceSaving} onClick={() => { setSentenceError(""); setDeletingSentenceId(sentence.id); }}>문장 삭제</button></div>
                   </>}
                 </div>
               </div>;
