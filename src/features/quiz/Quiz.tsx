@@ -160,7 +160,6 @@ export function Quiz({ doc, words, progress, generationJob, onClose, onGenerate,
       return { kind: "choice", prompt, options, answer: options.indexOf(answerText), explanation: word.source_sentence, wordId: word.id, sourceSentence: word.source_sentence, testedPart: word.word };
     });
     return [];
-<<<<<<< HEAD
   }, [mode, quizWordsSnapshot, analysis, orderingScope, selectedSentenceIds, shortenLongSentence, progress.bookmarked_sentence_ids, activeComprehensionIds, vocabDirection, vocabFormat, selectedSet, selectedWordSnapshot, quizRun]);
 
   const recentWordResults = readWordQuizRecentResults(progress);
@@ -175,9 +174,6 @@ export function Quiz({ doc, words, progress, generationJob, onClose, onGenerate,
   // Marking a question or saving a result must never change a running set.
   if (!started || sessionQuestions.current?.run !== quizRun) sessionQuestions.current = { run: quizRun, questions: availableQuestions };
   const questions = started ? sessionQuestions.current.questions : availableQuestions;
-=======
-  }, [mode, quizWordsSnapshot, analysis, orderingScope, selectedSentenceIds, shortenLongSentence, progress.bookmarked_sentence_ids, activeComprehensionIds, vocabDirection, vocabFormat, vocabUseAll, vocabCount, flashcardUseAll, flashcardBatchCount, quizRun]);
->>>>>>> b7d49e61600bd047257ccc282061085f2b8a3a3c
 
   useEffect(() => {
     if (!done || !started || answeredCount <= 0 || completedRunRef.current === quizRun) return;
