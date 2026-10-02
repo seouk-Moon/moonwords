@@ -10,6 +10,7 @@ import {
   MAX_CLOZE_GENERATION_COUNT,
   MAX_COMPREHENSION_GENERATION_COUNT,
   mergeUniqueQuestions,
+  normalizeQuestionText,
 } from "../features/quiz/quiz-utils";
 
 type Params = {
@@ -95,12 +96,12 @@ export function useQuizGeneration({
         }
         const merged = mergeUniqueQuestions(target.analysis.questions, generated);
         addedCount = merged.length - target.analysis.questions.length;
-        nextAnalysis = { ...target.analysis, questions: merged };
+        nextAnalysis = { ...target.analysis, questions: merged, latest_generated_questions: { ...target.analysis.latest_generated_questions, comprehension: merged.slice(target.analysis.questions.length).map((question) => normalizeQuestionText(question.question)) } };
       } else {
         const generated = createAdditionalClozeQuestions(target, words, count);
         const merged = mergeUniqueQuestions(target.analysis.cloze_questions ?? [], generated);
         addedCount = merged.length - (target.analysis.cloze_questions?.length ?? 0);
-        nextAnalysis = { ...target.analysis, cloze_questions: merged };
+        nextAnalysis = { ...target.analysis, cloze_questions: merged, latest_generated_questions: { ...target.analysis.latest_generated_questions, cloze: merged.slice(target.analysis.cloze_questions?.length ?? 0).map((question) => normalizeQuestionText(question.question)) } };
       }
 
       if (generationRun.current !== runId) return;

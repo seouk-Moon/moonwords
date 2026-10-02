@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { Session } from "@supabase/supabase-js";
 import { demoDocument } from "../demo";
 import { supabase } from "../lib/supabase";
@@ -7,6 +7,8 @@ import { uid } from "../lib/app-utils";
 import { normalizeCefrLevel } from "../lib/cefr";
 import type { View } from "../app-types";
 import type { DocumentAnalysis, DocumentFolder, StudyDocument, StudyProgress, VocabularyItem } from "../types";
+import { missedComprehensionKey, readMissedComprehensionIds } from "../features/quiz/quiz-utils";
+import { recordStudyOutcome } from "../features/vocabulary/study-sets";
 import { appendWordQuizResult } from "../features/vocabulary/recent-results";
 import { useLearningAnalytics } from "./useLearningAnalytics";
 import type { QuizMode } from "../app-types";
@@ -44,6 +46,8 @@ export function useStudyWorkspace(configured: boolean) {
   const [current, setCurrent] = useState<StudyDocument | null>(configured ? null : demoDocument);
   const [words, setWords] = useState<VocabularyItem[]>([]);
   const [progress, setProgress] = useState<StudyProgress>(createDemoProgress);
+  const progressRef = useRef(progress);
+  useEffect(() => { progressRef.current = progress; }, [progress]);
   const [view, setView] = useState<View>(configured ? "library" : "study");
   const learning = useLearningAnalytics({ session, current, view });
 
@@ -163,6 +167,7 @@ export function useStudyWorkspace(configured: boolean) {
   };
 
   const saveProgress = (next: StudyProgress) => {
+    progressRef.current = next;
     const newlyUnderstood = next.understood_sentence_ids.filter((id) => !progress.understood_sentence_ids.includes(id));
     for (const sentenceId of newlyUnderstood) learning.recordSentenceStudied(sentenceId);
 
@@ -182,20 +187,21 @@ export function useStudyWorkspace(configured: boolean) {
     }
   };
 
-  const quizResult = (id: string | undefined, correct: boolean) => {
-    if (!id) return;
-    const item = words.find((word) => word.id === id);
-    if (!item) return;
-
-    // Keep cumulative counters for backwards compatibility, while the wordbook
-    // reads the rolling last-10 history saved inside the existing study_progress JSON.
-    void updateWord({
-      ...item,
-      review_count: item.review_count + 1,
-      correct_count: item.correct_count + (correct ? 1 : 0),
-      incorrect_count: item.incorrect_count + (correct ? 0 : 1),
-    });
-    saveProgress(appendWordQuizResult(progress, id, correct));
+  const quizResult = (id: string | undefined, correct: boolean, options?: { quizKey?: string; sourceQuestionId?: number }) => {
+    let next = progressRef.current;
+    const item = id ? words.find((word) => word.id === id) : undefined;
+    if (item) {
+      void updateWord({ ...item, review_count: item.review_count + 1, correct_count: item.correct_count + (correct ? 1 : 0), incorrect_count: item.incorrect_count + (correct ? 0 : 1) });
+      next = appendWordQuizResult(next, item.id, correct);
+    }
+    if (options?.quizKey) next = recordStudyOutcome(next, options.quizKey, correct);
+    if (options?.sourceQuestionId !== undefined) {
+      const missed = readMissedComprehensionIds(next, current?.analysis.questions.length ?? 0);
+      const ids = correct ? missed.filter((value) => value !== options.sourceQuestionId) : [...new Set([...missed, options.sourceQuestionId])];
+      next = { ...next, sentence_notes: { ...next.sentence_notes, [missedComprehensionKey]: JSON.stringify(ids) } };
+    }
+    // Write the latest history, review scope and marks together in one save.
+    if (next !== progressRef.current) saveProgress(next);
   };
 
   const recordQuizAnswer = (mode: QuizMode, correct: boolean, options?: { wordId?: string; sentenceId?: number }) => {
@@ -274,6 +280,22 @@ export function useStudyWorkspace(configured: boolean) {
       : word));
     if (supabase && session) {
       await supabase.from("vocabulary").update({ source_sentence: trimmedEnglish, translation: trimmedKorean }).eq("document_id", documentId).eq("sentence_id", sentenceId);
+    }
+  };
+
+  const deleteSentence = async (documentId: string, sentenceId: number) => {
+    const document = documents.find((item) => item.id === documentId);
+    if (!document) throw new Error("삭제할 본문을 찾지 못했습니다.");
+    await updateDocumentAnalysis(documentId, {
+      ...document.analysis,
+      sentences: document.analysis.sentences.filter((sentence) => sentence.id !== sentenceId),
+    });
+    // Keep saved vocabulary and original source text; sentence IDs stay stable.
+    const saved = progressRef.current;
+    if (saved.document_id === documentId) {
+      const notes = { ...saved.sentence_notes };
+      delete notes[String(sentenceId)];
+      saveProgress({ ...saved, understood_sentence_ids: saved.understood_sentence_ids.filter((id) => id !== sentenceId), bookmarked_sentence_ids: saved.bookmarked_sentence_ids.filter((id) => id !== sentenceId), sentence_notes: notes, last_studied_at: new Date().toISOString() });
     }
   };
 
@@ -429,6 +451,7 @@ export function useStudyWorkspace(configured: boolean) {
     renameDocument,
     updateDocumentAnalysis,
     updateSentence,
+    deleteSentence,
     deleteDocument,
     createFolder,
     renameFolder,

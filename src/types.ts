@@ -35,6 +35,8 @@ export type DocumentAnalysis = {
   sentences: AnalysisSentence[];
   questions: ReadingQuestion[];
   cloze_questions?: ReadingQuestion[];
+  /** Most recent successful generation batch, stored with the document. */
+  latest_generated_questions?: { comprehension?: string[]; cloze?: string[] };
 };
 
 export type DocumentFolder = {

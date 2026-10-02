@@ -21,6 +21,8 @@ export function QuizResult({
   onShuffleAll,
   onHome,
   compactFlashcardMistakes = false,
+  nextSetLabel,
+  onNextSet,
 }: {
   score: number;
   total: number;
@@ -31,6 +33,8 @@ export function QuizResult({
   onShuffleAll: () => void;
   onHome: () => void;
   compactFlashcardMistakes?: boolean;
+  nextSetLabel?: string;
+  onNextSet?: () => void;
 }) {
   const [showMistakes, setShowMistakes] = useState(false);
 
@@ -41,6 +45,7 @@ export function QuizResult({
         <strong>{score} / {total}</strong>
         <p>{summary}</p>
         <div className="result-actions">
+          {onNextSet && nextSetLabel && <button className="primary-button" onClick={onNextSet}>{nextSetLabel}</button>}
           {canRetryIncorrect && <button onClick={onRetryIncorrect}>오답만 풀기</button>}
           <button className="primary-button" onClick={onShuffleAll}>전체 섞어서 풀기</button>
           <button onClick={() => setShowMistakes((value) => !value)} disabled={!mistakes.length}>
