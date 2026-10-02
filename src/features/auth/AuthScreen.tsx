@@ -32,6 +32,7 @@ export function AuthScreen() {
           email,
           password,
           options: {
+            emailRedirectTo: new URL(import.meta.env.BASE_URL, window.location.origin).href,
             data: {
               full_name: fullName.trim(),
               nickname: nickname.trim(),
