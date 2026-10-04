@@ -10,7 +10,7 @@ export function SiteFooter({ onOpen }: { onOpen: (page: InfoPage) => void }) {
           <p>영어 본문을 읽고, 단어를 익히고, 퀴즈로 복습하는 나만의 학습 공간.</p>
         </div>
         <nav aria-label="서비스 안내">
-          <div><strong>서비스</strong><a href="./pdf-extractor.html">텍스트 추출</a><a href="https://seouk-moon.github.io/printmaker/" target="_blank" rel="noreferrer">학습지 만들기 · Printmaker ↗</a></div>
+          <div><strong>서비스</strong><a href="./drive.html" target="_blank" rel="noreferrer">파일 보관 · Moon Drive ↗</a><a href="./pdf-extractor.html">텍스트 추출</a><a href="https://seouk-moon.github.io/printmaker/" target="_blank" rel="noreferrer">학습지 만들기 · Printmaker ↗</a></div>
           <div><strong>안내</strong><button onClick={() => openPage("contact")}>문의하기</button><a href="https://github.com/seouk-Moon/moonwords" target="_blank" rel="noreferrer">GitHub</a></div>
           <div><strong>법적 안내</strong><button onClick={() => openPage("terms")}>이용약관</button><button onClick={() => openPage("privacy")}>개인정보처리방침</button></div>
         </nav>

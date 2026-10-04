@@ -6,7 +6,6 @@ import { AppHeader } from "./components/layout/AppHeader";
 import { MobileBottomNav } from "./components/layout/MobileBottomNav";
 import { SiteFooter, type InfoPage } from "./components/layout/SiteFooter";
 import { Logo } from "./components/brand/Logo";
-import { MoonDrive } from "./features/drive/MoonDrive";
 import { AuthScreen } from "./features/auth/AuthScreen";
 import { UploadPanel } from "./features/upload/UploadPanel";
 import { LibraryPage } from "./features/library/LibraryPage";
@@ -115,7 +114,6 @@ export default function App({ supabaseUrl, supabasePublishableKey }: AppProps = 
     <div className="auth-with-footer">
       {infoPage ? <LegalPage page={infoPage} onBack={() => setInfoPage(null)} /> : <AuthScreen />}
       <SupportChatbot context={{ view: infoPage ? "legal" : "auth", configured, signedIn: false }} />
-      {!infoPage && <MoonDrive />}
       <SiteFooter onOpen={setInfoPage} />
     </div>
   );
@@ -246,7 +244,6 @@ export default function App({ supabaseUrl, supabasePublishableKey }: AppProps = 
         documentSentences: workspace.current?.analysis.sentences,
       }} onOpenSentence={openSentenceFromMoon} />
 
-      {!infoPage && <MoonDrive />}
       <SiteFooter onOpen={setInfoPage} />
     </div>
   );

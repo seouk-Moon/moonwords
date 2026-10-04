@@ -1,5 +1,5 @@
 import { useRef, useState } from "react";
-import { supabase } from "../../lib/supabase";
+import { driveClient } from "./drive-client";
 import "./moon-drive.css";
 
 type DriveFile = { id: string; name: string; size: number; ready: boolean; created_at: string };
@@ -8,7 +8,7 @@ const sizeLabel = (size: number) => size < 1024 ? `${size} B` : size < 1024 * 10
   ? `${(size / 1024).toFixed(1)} KB` : `${(size / 1024 / 1024).toFixed(1)} MB`;
 
 export function MoonDrive() {
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(true);
   const [code, setCode] = useState("");
   const [unlocked, setUnlocked] = useState(false);
   const [listing, setListing] = useState<Listing | null>(null);
@@ -19,8 +19,8 @@ export function MoonDrive() {
   const input = useRef<HTMLInputElement>(null);
 
   const request = async <T,>(body: Record<string, string> | FormData): Promise<T> => {
-    if (!supabase) throw new Error("드라이브를 사용하려면 Supabase 연결이 필요해요.");
-    const result = await supabase.functions.invoke("moon-drive", { body, headers: { "x-drive-code": code } });
+    if (!driveClient) throw new Error("드라이브를 사용하려면 Supabase 연결이 필요해요.");
+    const result = await driveClient.functions.invoke("moon-drive", { body, headers: { "x-drive-code": code } });
     if (result.error) {
       let detail = "드라이브에 연결하지 못했어요. 서버 설정이나 네트워크를 확인해 주세요.";
       try { detail = (await result.error.context.json()).error || detail; } catch { /* transport failure */ }

@@ -1,7 +1,13 @@
 # Moon Drive 설치 안내
 
 최신 GitHub main(b5ba0a0)을 기준으로 기존 학습 기능을 유지하면서 추가했습니다.
-로그인 화면과 학습 화면 아래에서 Moon Drive를 열 수 있습니다. MoonWords 회원가입 없이도 관리자가 정한 코드로 이용합니다.
+MoonWords 하단 서비스 링크에서 별도의 Moon Drive 페이지로 이동합니다.
+독립 주소: https://seouk-moon.github.io/moonwords/drive.html
+드라이브는 MoonWords 학습 화면·회원 로그인·스타일과 분리되어 있습니다. MoonWords 회원가입 없이도 관리자가 정한 코드로 이용합니다.
+같은 저장소에서 배포하지만 파일은 전용 private 버킷과 전용 테이블로 분리해 보관합니다.
+
+이전 드라이브 ZIP을 적용했다면 src/App.tsx도 이번 ZIP 파일로 덮어써 주세요. 학습 화면에 삽입됐던 드라이브를 제거합니다.
+SQL 실행·코드 설정·함수 배포를 이미 마쳤다면 이번에는 프런트엔드만 덮어쓰고 Push하면 됩니다. SQL을 다시 실행할 필요가 없습니다.
 
 ## 1. 소스 적용
 
@@ -45,7 +51,7 @@ supabase functions deploy moon-drive --no-verify-jwt
 
 ## 5. 확인
 
-GitHub Pages 배포 완료 후 새로고침하고 아래 Moon Drive → 열기를 누르세요.
+GitHub Pages 배포 완료 후 새로고침하고 하단 서비스의 파일 보관 · Moon Drive 링크를 누르세요. 새 탭에서 독립된 드라이브 화면이 열립니다.
 틀린 코드는 접근이 거절되고, 설정한 코드로만 파일 목록이 열려야 합니다.
 작은 파일 업로드 → 원본 다운로드 → 삭제 확인을 해 보세요.
 삭제는 Storage 원본까지 지워 용량을 반환합니다.
