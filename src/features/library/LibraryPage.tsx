@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { CreateWordbookPanel, type CollectionOptions } from "./CreateWordbookPanel";
 import { formatCefrLevel } from "../../lib/cefr";
 import type { DocumentFolder, StudyDocument } from "../../types";
 
@@ -9,6 +10,7 @@ type Props = {
   documents: StudyDocument[];
   folders: DocumentFolder[];
   onOpen: (doc: StudyDocument) => void;
+  onCreateCollection: (options: CollectionOptions) => Promise<StudyDocument>;
   onUpload: (folderId?: string | null) => void;
   onCreateFolder: (name: string) => Promise<DocumentFolder>;
   onRenameFolder: (folderId: string, name: string) => Promise<void>;
@@ -28,6 +30,7 @@ export function LibraryPage({
   documents,
   folders,
   onOpen,
+  onCreateCollection,
   onUpload,
   onCreateFolder,
   onRenameFolder,
@@ -36,6 +39,7 @@ export function LibraryPage({
   onMoveDocument,
   onMoveFolder,
 }: Props) {
+  const [creatingCollection, setCreatingCollection] = useState(false);
   const [selectedFolderId, setSelectedFolderId] = useState<string>(ALL_FOLDER);
   const [folderError, setFolderError] = useState("");
   const [deleteCandidate, setDeleteCandidate] = useState<StudyDocument | null>(null);
@@ -130,10 +134,12 @@ export function LibraryPage({
           <h1>내 본문</h1>
           <p>공부할 본문을 고르거나 새 본문을 추가하세요. 학습 현황은 상단 프로필에서 확인할 수 있어요.</p>
         </div>
-        <button className="primary-button new-reading-button" onClick={() => onUpload(defaultUploadFolder)}>＋ 새 본문</button>
+        <div className="collection-library-actions"><button className="outline-button" disabled={!documents.length} onClick={() => setCreatingCollection(true)}>☆ 통합 단어장 만들기</button><button className="primary-button new-reading-button" onClick={() => onUpload(defaultUploadFolder)}>＋ 새 본문</button></div>
       </section>
 
 
+      {creatingCollection && <CreateWordbookPanel documents={documents} folders={folders} initialFolderId={defaultUploadFolder}
+        onCreate={onCreateCollection} onClose={() => setCreatingCollection(false)} />}
       <section className="folder-toolbar" aria-label="본문 폴더">
         <div className="folder-list">
           <button className={selectedFolderId === ALL_FOLDER ? "active" : ""} onClick={() => setSelectedFolderId(ALL_FOLDER)}>
@@ -168,7 +174,7 @@ export function LibraryPage({
           </div>
           <div className="continue-reading-meta">
             <strong>{recent.analysis.sentences.length}</strong>
-            <span>문장</span>
+            <span>{recent.analysis.collection ? "단어" : "문장"}</span>
             <small>{recent.last_studied_at ? `최근 학습 ${formatDate(recent.last_studied_at)}` : "아직 학습 없음"}</small>
           </div>
         </button>
@@ -202,7 +208,7 @@ export function LibraryPage({
                 <p>{doc.analysis.summary}</p>
               </button>
               <footer>
-                <span>{doc.analysis.sentences.length} 문장 · {formatCefrLevel(doc.analysis.level)}</span>
+                <span>{doc.analysis.collection ? `${doc.analysis.sentences.length}개 단어 · 통합 단어장` : `${doc.analysis.sentences.length} 문장 · ${formatCefrLevel(doc.analysis.level)}`}</span>
                 <label className="folder-select-label" onClick={(event) => event.stopPropagation()}>
                   <span>폴더</span>
                   <select

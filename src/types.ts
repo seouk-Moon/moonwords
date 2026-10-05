@@ -27,6 +27,7 @@ export type ReadingQuestion = {
 };
 
 export type DocumentAnalysis = {
+  collection?: { sourceDocumentIds: string[]; scope: "starred" | "important" | "all"; wordCount: number };
   level: string;
   topic: string;
   summary: string;

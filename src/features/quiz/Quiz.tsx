@@ -17,7 +17,8 @@ import { QuizResult } from "./QuizResult";
 import { OrderingContextExcerpt } from "./OrderingContextExcerpt";
 
 export function Quiz({ doc, words, progress, generationJob, onClose, onGenerate, onProgress, onResult, onQuestionAnswered, onQuizComplete }: { doc: StudyDocument; words: VocabularyItem[]; progress: StudyProgress; generationJob: QuizGenerationJob | null; onClose: () => void; onGenerate: (type: QuizGenerationType, count: number) => void; onProgress: (next: StudyProgress) => void; onResult: (id: string | undefined, correct: boolean, options?: { quizKey?: string; sourceQuestionId?: number }) => void; onQuestionAnswered: (mode: QuizMode, correct: boolean, options?: { wordId?: string; sentenceId?: number }) => void; onQuizComplete: (mode: QuizMode, score: number, questionCount: number) => void }) {
-  const [mode, setMode] = useState<QuizMode>("comprehension");
+  const [mode, setMode] = useState<QuizMode>(doc.analysis.collection ? "meaning" : "comprehension");
+  const writtenInput = useRef<HTMLInputElement>(null);
   const [index, setIndex] = useState(0);
   const [picked, setPicked] = useState<number | null>(null);
   const [score, setScore] = useState(0);
@@ -281,6 +282,7 @@ export function Quiz({ doc, words, progress, generationJob, onClose, onGenerate,
     if (correct) setScore((value) => value + 1);
     else rememberMistake({
       id: `choice:${quizRun}:${index}:${question.wordId ?? question.sourceQuestionId ?? question.prompt}`,
+      studyKey: quizStudyKey(mode, question),
       prompt: question.prompt,
       selected: question.options[choice] ?? "",
       answer: question.options[question.answer] ?? "",
@@ -300,6 +302,7 @@ export function Quiz({ doc, words, progress, generationJob, onClose, onGenerate,
     if (correct) setScore((value) => value + 1);
     else rememberMistake({
       id: `written:${quizRun}:${index}:${question.wordId}`,
+      studyKey: quizStudyKey(mode, question),
       prompt: question.prompt,
       selected: writtenAnswer,
       answer: question.answerText,
@@ -341,6 +344,7 @@ export function Quiz({ doc, words, progress, generationJob, onClose, onGenerate,
     const reviewMeaning = words.find((word) => word.id === question.wordId)?.meaning ?? question.back;
     rememberMistake({
       id: `flashcard:${quizRun}:${question.wordId}`,
+      studyKey: quizStudyKey(mode, question),
       prompt: question.front,
       answer: reviewMeaning,
       sourceSentence: question.sourceSentence,
@@ -386,6 +390,7 @@ export function Quiz({ doc, words, progress, generationJob, onClose, onGenerate,
     if (correct) setScore((value) => value + 1);
     else rememberMistake({
       id: `ordering:${quizRun}:${index}:${question.sentenceId}`,
+      studyKey: quizStudyKey(mode, question),
       prompt: "영어 어순 배열",
       selected: answerTokens.join(" "),
       answer: question.answerTokens.join(" "),
@@ -398,6 +403,38 @@ export function Quiz({ doc, words, progress, generationJob, onClose, onGenerate,
     if (index + 1 >= questions.length) setDone(true);
     else { setIndex((value) => value + 1); clearAnswer(); }
   };
+  useEffect(() => {
+    if (started && !done && mode === "meaning" && vocabFormat === "written") writtenInput.current?.focus();
+  }, [started, done, index, quizRun, mode, vocabFormat]);
+
+  useEffect(() => {
+    if (!started || done || mode !== "meaning" || vocabFormat !== "written" || !writtenRevealed || writtenGraded !== null) return;
+    const handleWrittenGrade = (event: KeyboardEvent) => {
+      if ((event.key !== "ArrowLeft" && event.key !== "ArrowRight") || event.isComposing || event.keyCode === 229 || event.ctrlKey || event.altKey || event.metaKey || event.shiftKey) return;
+      const target = event.target;
+      if (target instanceof HTMLElement && target.closest("textarea, select, input:not(:disabled), [contenteditable='true'], [role='textbox']")) return;
+      event.preventDefault();
+      event.stopPropagation();
+      if (!event.repeat) gradeWritten(event.key === "ArrowRight");
+    };
+    window.addEventListener("keydown", handleWrittenGrade, true);
+    return () => window.removeEventListener("keydown", handleWrittenGrade, true);
+  }, [started, done, mode, vocabFormat, writtenRevealed, writtenGraded, gradeWritten]);
+
+  useEffect(() => {
+    if (!started || done || mode === "flashcard") return;
+    const ready = picked !== null || writtenGraded !== null || orderingSubmitted;
+    const handleEnter = (event: KeyboardEvent) => {
+      if (event.key !== "Enter" || event.isComposing || event.keyCode === 229 || event.ctrlKey || event.altKey || event.metaKey || event.shiftKey) return;
+      const target = event.target;
+      if (event.repeat) { event.preventDefault(); return; }
+      if (!ready || target instanceof HTMLElement && target.closest("textarea, select, input:not(:disabled), [contenteditable='true'], [role='textbox']")) return;
+      event.preventDefault(); event.stopPropagation(); next();
+    };
+    window.addEventListener("keydown", handleEnter, true);
+    return () => window.removeEventListener("keydown", handleEnter, true);
+  }, [started, done, mode, picked, writtenGraded, orderingSubmitted, index, questions.length]);
+
   const beginFlashcardSwipe = (event: React.PointerEvent<HTMLDivElement>) => {
     if (!flashcardFlipped) return;
     flashcardPointerStart.current = event.clientX;
@@ -449,6 +486,7 @@ export function Quiz({ doc, words, progress, generationJob, onClose, onGenerate,
     } else startQuiz();
   };
   const returnToQuizHome = () => {
+    if (doc.analysis.collection) { reset("meaning"); return; }
     setStarted(false);
     setReviewScope("all");
     setMode("comprehension");
@@ -509,6 +547,8 @@ export function Quiz({ doc, words, progress, generationJob, onClose, onGenerate,
       total={questions.length}
       summary={score === questions.length && runMistakes.length === 0 ? "완벽해요!" : mode === "comprehension" ? `현재 본문 내용 퀴즈 오답 ${missedComprehensionIds.length}개가 저장되어 있어요.` : mode === "ordering" ? "오답을 확인한 뒤 다시 배열해 보세요." : mode === "flashcard" ? "모른다고 표시한 카드는 남은 카드 뒤로 보내 다시 확인했어요." : "틀린 단어와 정답을 바로 확인할 수 있어요."}
       mistakes={runMistakes}
+      studySettings={studySettings}
+      onToggleMark={(key, mark) => onProgress(toggleStudyMark(progress, key, mark))}
       canRetryIncorrect={preparedQuestions.some(isIncorrect)}
       onRetryIncorrect={retryIncorrect}
       onShuffleAll={shuffleAllAgain}
@@ -522,6 +562,6 @@ export function Quiz({ doc, words, progress, generationJob, onClose, onGenerate,
       <div className={`ordering-answer ${orderingSubmitted ? orderingCorrect ? "correct" : "wrong" : ""}`}>{selectedOrderingTokens.length ? selectedOrderingTokens.map((token) => <button key={token.id} disabled={orderingSubmitted} onClick={() => setOrderedTokenIds((ids) => ids.filter((id) => id !== token.id))}>{token.text}</button>) : <span>아래 단어를 순서대로 선택하세요.</span>}</div>
       <div className="ordering-bank">{availableOrderingTokens.map((token) => <button key={token.id} disabled={orderingSubmitted} onClick={() => setOrderedTokenIds((ids) => [...ids, token.id])}>{token.text}</button>)}</div>
       {!orderingSubmitted ? <div className="ordering-actions"><button onClick={() => setOrderedTokenIds([])} disabled={!orderedTokenIds.length}>초기화</button><button className="primary-button" onClick={submitOrdering} disabled={orderedTokenIds.length !== question.answerTokens.length}>채점하기</button></div> : <div className="answer-note"><b>{orderingCorrect ? "정답입니다" : "정답을 확인하세요"}</b><p>{question.answerTokens.join(" ")}</p><button onClick={next}>{index + 1 === questions.length ? "결과 보기" : "다음 문제 →"}</button></div>}
-    </section> : question?.kind === "written" ? <section className="quiz-card written-card"><header><span>{index + 1} / {questions.length}</span><div><i style={{ width: `${((index + 1) / questions.length) * 100}%` }} /></div><b>{score} correct</b></header><h2>{question.prompt}</h2><div className="written-response"><input autoFocus value={writtenAnswer} disabled={writtenRevealed} onChange={(event) => setWrittenAnswer(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter" && writtenAnswer.trim()) setWrittenRevealed(true); }} placeholder="정답을 직접 입력하세요" /><button className="primary-button" disabled={!writtenAnswer.trim() || writtenRevealed} onClick={() => setWrittenRevealed(true)}>정답 확인</button></div>{writtenRevealed && <div className="answer-note written-note"><div className="written-answer-highlight"><small>정답</small><strong>{question.answerText}</strong></div><p>내 답: {writtenAnswer}</p><p className="example-note">{question.explanation}</p>{writtenGraded === null ? <div className="self-grade"><span>내 답을 스스로 채점해 주세요.</span><button onClick={() => gradeWritten(false)}>틀렸어요</button><button className="correct-button" onClick={() => gradeWritten(true)}>맞았어요</button></div> : <><strong>{writtenGraded ? "정답으로 기록했습니다." : "오답으로 기록했습니다."}</strong><button onClick={next}>{index + 1 === questions.length ? "결과 보기" : "다음 문제 →"}</button></>}</div>}</section> : question?.kind === "flashcard" ? <section className="quiz-card flashcard-wrap"><header><span>남은 {flashcardQueue.length} / {questions.length}</span><div><i style={{ width: `${questions.length ? (score / questions.length) * 100 : 0}%` }} /></div><b>{score} memorized</b></header><div className="flashcard-stage"><span className="swipe-label retry" style={{ opacity: Math.max(0, -flashcardDragX / 90) }}>다시 보기</span><span className="swipe-label learned" style={{ opacity: Math.max(0, flashcardDragX / 90) }}>외웠어요</span><div key={`${question.wordId}:${flashcardTurn}`} role="button" tabIndex={0} className={`flashcard ${flashcardFlipped ? "flipped" : ""}`} style={{ transform: `translateX(${flashcardDragX}px) rotate(${flashcardDragX / 18}deg)` }} onClick={() => { if (suppressFlashcardClick.current) { suppressFlashcardClick.current = false; return; } if (!flashcardFlipped) setFlashcardFlipped(true); }} onPointerDown={beginFlashcardSwipe} onPointerMove={moveFlashcardSwipe} onPointerUp={endFlashcardSwipe} onPointerCancel={endFlashcardSwipe}><span>{flashcardFlipped ? "BACK" : "FRONT"}</span><strong>{flashcardFlipped ? question.back : question.front}</strong>{flashcardFlipped ? <small>{question.example}<em>{question.translation}</em></small> : <small>클릭 또는 Enter · Space로 답을 확인하세요.</small>}</div></div><p className="flashcard-swipe-help">Enter · Space로 정답 확인 · ← 다시 보기 · → 외웠어요. 카드를 좌우로 밀어도 돼요.{currentFlashcardRetryCount > 0 && <b> · 이 카드 재도전 {currentFlashcardRetryCount}회</b>}</p>{flashcardFlipped && <div className="flashcard-actions"><button onClick={() => gradeFlashcard(false)}>← 다시 보기</button><button className="primary-button" onClick={() => gradeFlashcard(true)}>외웠어요 →</button></div>}</section> : question?.kind === "choice" ? <section className="quiz-card"><header><span>{index + 1} / {questions.length}</span><div><i style={{ width: `${((index + 1) / questions.length) * 100}%` }} /></div><b>{score} correct</b></header><h2>{question.prompt}</h2><div className="options">{question.options.map((option, optionIndex) => <button key={`${option}-${optionIndex}`} className={picked === null ? "" : optionIndex === question.answer ? "correct" : optionIndex === picked ? "wrong" : "muted"} onClick={() => answer(optionIndex)}><span>{String.fromCharCode(65 + optionIndex)}</span>{option}</button>)}</div>{picked !== null && <div className="answer-note"><b>{picked === question.answer ? "정답입니다" : "정답을 확인하세요"}</b><p>{question.explanation}</p><button onClick={next}>{index + 1 === questions.length ? "결과 보기" : "다음 문제 →"}</button></div>}</section> : null)}
+    </section> : question?.kind === "written" ? <section className="quiz-card written-card"><header><span>{index + 1} / {questions.length}</span><div><i style={{ width: `${((index + 1) / questions.length) * 100}%` }} /></div><b>{score} correct</b></header><h2>{question.prompt}</h2><div className="written-response"><input ref={writtenInput} autoFocus value={writtenAnswer} disabled={writtenRevealed} onChange={(event) => setWrittenAnswer(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter" && !event.nativeEvent.isComposing && event.keyCode !== 229) { event.preventDefault(); if (!event.repeat && writtenAnswer.trim()) setWrittenRevealed(true); } }} placeholder="정답을 직접 입력하세요" /><button className="primary-button" disabled={!writtenAnswer.trim() || writtenRevealed} onClick={() => setWrittenRevealed(true)}>정답 확인</button></div>{writtenRevealed && <div className="answer-note written-note"><div className="written-answer-highlight"><small>정답</small><strong>{question.answerText}</strong></div><p>내 답: {writtenAnswer}</p><p className="example-note">{question.explanation}</p>{writtenGraded === null ? <div className="self-grade"><span>← 틀렸어요 · → 맞았어요 · 채점 후 Enter로 다음 문제</span><button onClick={() => gradeWritten(false)}>← 틀렸어요</button><button className="correct-button" onClick={() => gradeWritten(true)}>맞았어요 →</button></div> : <><strong>{writtenGraded ? "정답으로 기록했습니다." : "오답으로 기록했습니다."}</strong><button onClick={next}>{index + 1 === questions.length ? "결과 보기" : "다음 문제 →"}</button></>}</div>}</section> : question?.kind === "flashcard" ? <section className="quiz-card flashcard-wrap"><header><span>남은 {flashcardQueue.length} / {questions.length}</span><div><i style={{ width: `${questions.length ? (score / questions.length) * 100 : 0}%` }} /></div><b>{score} memorized</b></header><div className="flashcard-stage"><span className="swipe-label retry" style={{ opacity: Math.max(0, -flashcardDragX / 90) }}>다시 보기</span><span className="swipe-label learned" style={{ opacity: Math.max(0, flashcardDragX / 90) }}>외웠어요</span><div key={`${question.wordId}:${flashcardTurn}`} role="button" tabIndex={0} className={`flashcard ${flashcardFlipped ? "flipped" : ""}`} style={{ transform: `translateX(${flashcardDragX}px) rotate(${flashcardDragX / 18}deg)` }} onClick={() => { if (suppressFlashcardClick.current) { suppressFlashcardClick.current = false; return; } if (!flashcardFlipped) setFlashcardFlipped(true); }} onPointerDown={beginFlashcardSwipe} onPointerMove={moveFlashcardSwipe} onPointerUp={endFlashcardSwipe} onPointerCancel={endFlashcardSwipe}><span>{flashcardFlipped ? "BACK" : "FRONT"}</span><strong>{flashcardFlipped ? question.back : question.front}</strong>{flashcardFlipped ? <small>{question.example}<em>{question.translation}</em></small> : <small>클릭 또는 Enter · Space로 답을 확인하세요.</small>}</div></div><p className="flashcard-swipe-help">Enter · Space로 정답 확인 · ← 다시 보기 · → 외웠어요. 카드를 좌우로 밀어도 돼요.{currentFlashcardRetryCount > 0 && <b> · 이 카드 재도전 {currentFlashcardRetryCount}회</b>}</p>{flashcardFlipped && <div className="flashcard-actions"><button onClick={() => gradeFlashcard(false)}>← 다시 보기</button><button className="primary-button" onClick={() => gradeFlashcard(true)}>외웠어요 →</button></div>}</section> : question?.kind === "choice" ? <section className="quiz-card"><header><span>{index + 1} / {questions.length}</span><div><i style={{ width: `${((index + 1) / questions.length) * 100}%` }} /></div><b>{score} correct</b></header><h2>{question.prompt}</h2><div className="options">{question.options.map((option, optionIndex) => <button key={`${option}-${optionIndex}`} className={picked === null ? "" : optionIndex === question.answer ? "correct" : optionIndex === picked ? "wrong" : "muted"} onClick={() => answer(optionIndex)}><span>{String.fromCharCode(65 + optionIndex)}</span>{option}</button>)}</div>{picked !== null && <div className="answer-note"><b>{picked === question.answer ? "정답입니다" : "정답을 확인하세요"}</b><p>{question.explanation}</p><button onClick={next}>{index + 1 === questions.length ? "결과 보기" : "다음 문제 →"}</button></div>}</section> : null)}
   </main>;
 }

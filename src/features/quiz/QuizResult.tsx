@@ -1,4 +1,5 @@
 import { useState } from "react";
+import type { StudySettings } from "../vocabulary/study-sets";
 import type { QuizMistakeReviewItem } from "../../app-types";
 
 const HighlightedMistakeSentence = ({ sentence, testedPart }: { sentence: string; testedPart?: string }) => {
@@ -12,6 +13,8 @@ const HighlightedMistakeSentence = ({ sentence, testedPart }: { sentence: string
 };
 
 export function QuizResult({
+  studySettings,
+  onToggleMark,
   score,
   total,
   summary,
@@ -24,6 +27,8 @@ export function QuizResult({
   nextSetLabel,
   onNextSet,
 }: {
+  studySettings?: StudySettings;
+  onToggleMark?: (key: string, mark: "starred" | "important") => void;
   score: number;
   total: number;
   summary: string;
@@ -37,6 +42,15 @@ export function QuizResult({
   onNextSet?: () => void;
 }) {
   const [showMistakes, setShowMistakes] = useState(false);
+
+  const marks = (mistake: QuizMistakeReviewItem) => mistake.studyKey && studySettings && onToggleMark ? (
+    <div className="study-marks mistake-review-marks">
+      <button type="button" aria-label={`${mistake.prompt} 오답 별표`} aria-pressed={studySettings.starred.includes(mistake.studyKey)}
+        onClick={() => onToggleMark(mistake.studyKey!, "starred")}>{studySettings.starred.includes(mistake.studyKey) ? "★" : "☆"} 별표</button>
+      <button type="button" aria-label={`${mistake.prompt} 오답 더 중요`} aria-pressed={studySettings.important.includes(mistake.studyKey)}
+        onClick={() => onToggleMark(mistake.studyKey!, "important")}>! 더 중요</button>
+    </div>
+  ) : null;
 
   return (
     <div className="quiz-result-stack">
@@ -69,6 +83,7 @@ export function QuizResult({
                     <HighlightedMistakeSentence sentence={mistake.sourceSentence || mistake.prompt} testedPart={mistake.testedPart} />
                   </p>
                   <p className="flashcard-mistake-meaning">{mistake.answer}</p>
+                  {marks(mistake)}
                 </div>
               </article>
             ) : (
@@ -76,6 +91,7 @@ export function QuizResult({
                 <span>{index + 1}</span>
                 <div>
                   <h3>{mistake.prompt}</h3>
+                  {marks(mistake)}
                   {mistake.sourceSentence && (
                     <div className="mistake-source-sentence">
                       <small>전체 문장</small>

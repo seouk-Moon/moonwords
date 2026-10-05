@@ -8,9 +8,10 @@ import { normalizeCefrLevel } from "../lib/cefr";
 import type { View } from "../app-types";
 import type { DocumentAnalysis, DocumentFolder, StudyDocument, StudyProgress, VocabularyItem } from "../types";
 import { missedComprehensionKey, readMissedComprehensionIds } from "../features/quiz/quiz-utils";
-import { recordStudyOutcome } from "../features/vocabulary/study-sets";
+import { readStudySettings, recordStudyOutcome, writeStudySettings } from "../features/vocabulary/study-sets";
 import { appendWordQuizResult } from "../features/vocabulary/recent-results";
 import { useLearningAnalytics } from "./useLearningAnalytics";
+import type { CollectionOptions } from "../features/library/CreateWordbookPanel";
 import type { QuizMode } from "../app-types";
 
 const createDemoProgress = (): StudyProgress => ({
@@ -47,6 +48,8 @@ export function useStudyWorkspace(configured: boolean) {
   const [words, setWords] = useState<VocabularyItem[]>([]);
   const [progress, setProgress] = useState<StudyProgress>(createDemoProgress);
   const progressRef = useRef(progress);
+  const progressWrites = useRef<Promise<void>>(Promise.resolve());
+  const openRequest = useRef(0);
   useEffect(() => { progressRef.current = progress; }, [progress]);
   const [view, setView] = useState<View>(configured ? "library" : "study");
   const learning = useLearningAnalytics({ session, current, view });
@@ -83,23 +86,31 @@ export function useStudyWorkspace(configured: boolean) {
   }, [session]);
 
   const openDocument = useCallback(async (doc: StudyDocument) => {
+    const requestId = ++openRequest.current;
     const now = new Date().toISOString();
     const normalizedDocument = normalizeDocumentLevel({ ...doc, last_studied_at: now });
-    setCurrent(normalizedDocument);
-    setDocuments((items) => items.map((item) => item.id === doc.id ? { ...item, last_studied_at: now } : item));
-    setView("study");
+    const activate = () => {
+      setCurrent(normalizedDocument);
+      setDocuments((items) => items.map((item) => item.id === doc.id ? { ...item, last_studied_at: now } : item));
+      setView(doc.analysis.collection ? "words" : "study");
+    };
     if (!supabase || !session) {
+      activate();
       setProgress((currentProgress) => ({ ...currentProgress, document_id: doc.id, last_studied_at: now }));
       return;
     }
 
+    // Reopening must not read a snapshot from before the last settings save.
+    await progressWrites.current.catch(() => {});
     const [wordResult, progressResult] = await Promise.all([
       supabase.from("vocabulary").select("*").eq("document_id", doc.id).order("created_at"),
       supabase.from("study_progress").select("*").eq("document_id", doc.id).maybeSingle(),
     ]);
 
+    if (requestId !== openRequest.current || wordResult.error || progressResult.error) return;
+    activate();
     setWords((wordResult.data ?? []) as VocabularyItem[]);
-    const nextProgress: StudyProgress = {
+    let nextProgress: StudyProgress = {
       ...((progressResult.data as StudyProgress | null) ?? {
         user_id: session.user.id,
         document_id: doc.id,
@@ -110,8 +121,21 @@ export function useStudyWorkspace(configured: boolean) {
       }),
       last_studied_at: now,
     };
+    const mergedSettings = readStudySettings(nextProgress);
+    const cacheRecovery = mergedSettings.setSizeUpdatedAt && !nextProgress.sentence_notes?.__moonwords_study_sets_v1?.includes(mergedSettings.setSizeUpdatedAt);
+    if (cacheRecovery) nextProgress = writeStudySettings(nextProgress, mergedSettings);
+    progressRef.current = nextProgress;
     setProgress(nextProgress);
-    void supabase.from("study_progress").upsert({ ...nextProgress, user_id: session.user.id }, { onConflict: "user_id,document_id" });
+    const client = supabase;
+    const userId = session.user.id;
+    progressWrites.current = progressWrites.current.catch(() => {}).then(async () => {
+      // Existing rows get a timestamp update only; never overwrite notes just by opening.
+      const result = !progressResult.data || cacheRecovery
+        ? await client.from("study_progress").upsert({ ...nextProgress, user_id: userId }, { onConflict: "user_id,document_id", ignoreDuplicates: !cacheRecovery })
+        : await client.from("study_progress").update({ last_studied_at: now }).eq("user_id", userId).eq("document_id", doc.id);
+      if (result.error) throw new Error(result.error.message);
+    });
+    void progressWrites.current.catch(() => {});
   }, [session]);
 
   const saveWord = async (
@@ -181,9 +205,13 @@ export function useStudyWorkspace(configured: boolean) {
     setDocuments((items) => items.map((item) => item.id === next.document_id ? { ...item, last_studied_at: next.last_studied_at } : item));
     setCurrent((item) => item?.id === next.document_id ? { ...item, last_studied_at: next.last_studied_at } : item);
     if (supabase && session) {
-      void supabase
-        .from("study_progress")
-        .upsert({ ...next, user_id: session.user.id }, { onConflict: "user_id,document_id" });
+      const client = supabase;
+      const userId = session.user.id;
+      progressWrites.current = progressWrites.current.catch(() => {}).then(async () => {
+        const result = await client.from("study_progress").upsert({ ...next, user_id: userId }, { onConflict: "user_id,document_id" });
+        if (result.error) throw new Error(result.error.message);
+      });
+      void progressWrites.current.catch(() => {});
     }
   };
 
@@ -216,6 +244,32 @@ export function useStudyWorkspace(configured: boolean) {
     const normalizedDocument = normalizeDocumentLevel(doc);
     setDocuments((items) => [normalizedDocument, ...items.filter((item) => item.id !== doc.id)]);
     void openDocument(normalizedDocument);
+  };
+
+  const createWordbookCollection = async (options: CollectionOptions): Promise<StudyDocument> => {
+    if (!supabase || !session) throw new Error("로그인 후 통합 단어장을 저장할 수 있어요.");
+    // Finish in-flight mark saves before taking the server snapshot.
+    await progressWrites.current;
+    // Flush the latest marks before the server selects starred words.
+    const latest = progressRef.current;
+    if (current && latest.document_id === current.id && latest.user_id === session.user.id) {
+      const saved = await supabase.from("study_progress").upsert({ ...latest, user_id: session.user.id }, { onConflict: "user_id,document_id" });
+      if (saved.error) throw new Error("최근 별표 표시를 저장하지 못했어요. 다시 시도해 주세요.");
+    }
+    const result = await supabase.rpc("create_vocabulary_collection", {
+      p_title: options.title.trim(), p_source_ids: options.sourceIds, p_folder_id: options.folderId, p_scope: options.scope,
+    });
+    if (result.error) {
+      if (/create_vocabulary_collection|PGRST202|schema cache/i.test(result.error.message))
+        throw new Error("통합 단어장 SQL 설정이 필요해요. 설치 안내의 새 SQL을 실행해 주세요.");
+      throw new Error(result.error.message);
+    }
+    const created = Array.isArray(result.data) ? result.data[0] : result.data;
+    if (!created?.id || !created?.analysis) throw new Error("저장 결과를 확인하지 못했어요. 내 본문을 새로고침해 주세요.");
+    const doc = normalizeDocumentLevel(created as StudyDocument);
+    setDocuments(items => [doc, ...items.filter(item => item.id !== doc.id)]);
+    await openDocument(doc);
+    return doc;
   };
 
   const applyUpdatedDocument = (doc: StudyDocument) => {
@@ -447,6 +501,7 @@ export function useStudyWorkspace(configured: boolean) {
     updateDailyGoals: learning.updateDailyGoals,
     recordFullListeningCompleted: learning.recordFullListeningCompleted,
     addDocumentAndOpen,
+    createWordbookCollection,
     applyUpdatedDocument,
     renameDocument,
     updateDocumentAnalysis,

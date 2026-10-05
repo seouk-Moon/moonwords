@@ -143,6 +143,7 @@ export default function App({ supabaseUrl, supabasePublishableKey }: AppProps = 
           documents={workspace.documents}
           folders={workspace.folders}
           onOpen={workspace.openDocument}
+          onCreateCollection={workspace.createWordbookCollection}
           onUpload={openManualUpload}
           onCreateFolder={workspace.createFolder}
           onRenameFolder={workspace.renameFolder}

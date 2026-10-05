@@ -70,6 +70,7 @@ export type QuizQuestion = ChoiceQuizQuestion | WrittenQuizQuestion | FlashcardQ
 
 export type QuizMistakeReviewItem = {
   id: string;
+  studyKey?: string;
   prompt: string;
   selected?: string;
   answer: string;
