@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {findSimilarWords} from '../src/features/vocabulary/similar-words.ts';
+import {findSimilarWords,similarWordPairs} from '../src/features/vocabulary/similar-words.ts';
 const words = (...values) => values.map((word,i) => ({id:String(i),word,meaning:'뜻'+i}));
 test('four contiguous characters match independent of case and position',()=>{
  const groups=findSimilarWords(words('education','EDUCATE','cat','catch'));
@@ -20,4 +20,13 @@ test('matches update after editing or deleting entries',()=>{
  assert.equal(findSimilarWords(words('education','educate')).length,1);
  assert.equal(findSimilarWords(words('education','cat')).length,0);
  assert.equal(findSimilarWords(words('education')).length,0);
+});
+
+test('pair navigation yields exactly two entries and avoids repeated pairs',()=>{
+ const pairs=[...similarWordPairs(findSimilarWords(words('education','education','educate')))];
+ assert.equal(pairs.length,3);assert.equal(new Set(pairs.map(p=>p.key)).size,3);assert.ok(pairs.every(p=>p.words.length===2));
+});
+test('large matching groups can yield their first pairs without allocating the full pair list',()=>{
+ const group={sharedText:'moon',words:Array.from({length:5000},(_,i)=>({id:String(i),word:'moon'}))};
+ const pairs=similarWordPairs([group]);assert.equal(pairs.next().value.words.length,2);assert.equal(pairs.next().value.words[1].id,'2');
 });

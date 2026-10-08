@@ -4,6 +4,7 @@ import "./moon-drive.css";
 
 type DriveFile = { id: string; name: string; size: number; ready: boolean; created_at: string };
 type Listing = { files: DriveFile[]; used: number; capacity: number; maxFile: number };
+type UploadResult = { name: string; status: "waiting" | "uploading" | "success" | "error"; detail?: string };
 const sizeLabel = (size: number) => size < 1024 ? `${size} B` : size < 1024 * 1024
   ? `${(size / 1024).toFixed(1)} KB` : `${(size / 1024 / 1024).toFixed(1)} MB`;
 
@@ -16,7 +17,9 @@ export function MoonDrive() {
   const [message, setMessage] = useState("");
   const [search, setSearch] = useState("");
   const [deleteId, setDeleteId] = useState<string | null>(null);
+  const [uploads, setUploads] = useState<UploadResult[]>([]);
   const input = useRef<HTMLInputElement>(null);
+  const busyRef = useRef(false);
 
   const request = async <T,>(body: Record<string, string> | FormData): Promise<T> => {
     if (!driveClient) throw new Error("드라이브를 사용하려면 Supabase 연결이 필요해요.");
@@ -30,12 +33,43 @@ export function MoonDrive() {
   };
   const refresh = async () => setListing(await request<Listing>({ action: "list" }));
   const run = async (action: () => Promise<void>) => {
-    if (busy) return;
+    if (busyRef.current) return;
+    busyRef.current = true;
     setBusy(true); setMessage("");
     try { await action(); } catch (error) { setMessage(error instanceof Error ? error.message : "처리하지 못했어요."); }
-    finally { setBusy(false); }
+    finally { busyRef.current = false; setBusy(false); }
   };
-  const lock = () => { setUnlocked(false); setCode(""); setListing(null); setDeleteId(null); setMessage(""); };
+  const lock = () => { setUnlocked(false); setCode(""); setListing(null); setDeleteId(null); setMessage(""); setUploads([]); };
+
+  const uploadFiles = (files: File[]) => run(async () => {
+    setUploads(files.map((file) => ({ name: file.name, status: "waiting" })));
+    const update = (index: number, status: UploadResult["status"], detail?: string) => setUploads((items) => items.map((item, i) => i === index ? { ...item, status, detail } : item));
+    let succeeded = 0;
+    let remaining = listing ? listing.capacity - listing.used : Infinity;
+    try {
+      for (const [index, file] of files.entries()) {
+        update(index, "uploading");
+        try {
+          if (file.size < 1) throw new Error("빈 파일은 올릴 수 없어요.");
+          if (file.size > (listing?.maxFile ?? 20971520)) throw new Error(`파일당 최대 ${sizeLabel(listing?.maxFile ?? 20971520)}까지 올릴 수 있어요.`);
+          if (file.size > remaining) throw new Error("남은 용량이 부족해요. 파일을 삭제한 뒤 다시 선택해 주세요.");
+          const form = new FormData(); form.append("file", file);
+          await request(form);
+          remaining -= file.size;
+          succeeded++;
+          update(index, "success");
+        } catch (error) {
+          update(index, "error", error instanceof Error ? error.message : "업로드하지 못했어요.");
+        }
+      }
+      let summary = `${files.length}개 중 ${succeeded}개 업로드 완료${succeeded < files.length ? ` · ${files.length - succeeded}개 실패 (아래 결과 확인)` : ""}`;
+      try { await refresh(); }
+      catch { summary += " · 목록을 새로 불러오지 못했어요. 새로고침을 눌러 주세요."; }
+      setMessage(summary);
+    } finally { if (input.current) input.current.value = ""; }
+  });
+
+  const finishedUploads = uploads.filter((item) => item.status === "success" || item.status === "error").length;
 
   return <section className="moon-drive" aria-label="Moon Drive">
     <button className="moon-drive-toggle" aria-expanded={open} aria-controls="moon-drive-content" onClick={() => setOpen(!open)}>
@@ -60,19 +94,16 @@ export function MoonDrive() {
           <progress max={listing.capacity} value={listing.used} aria-label="드라이브 사용 용량" />
         </div>}
         <div className="drive-upload">
-          <p>원본 파일 그대로 보관 · 파일당 최대 {sizeLabel(listing?.maxFile ?? 20971520)}</p>
-          <input ref={input} aria-label="업로드할 파일 선택" type="file" disabled={busy} onChange={event => {
-            const file = event.target.files?.[0]; if (!file) return;
-            void run(async () => {
-              try {
-                if (file.size < 1) throw new Error("빈 파일은 올릴 수 없어요.");
-                if (file.size > (listing?.maxFile ?? 20971520)) throw new Error("파일당 최대 20MB까지 올릴 수 있어요.");
-                if (listing && file.size > listing.capacity - listing.used) throw new Error("남은 용량이 부족해요. 파일을 삭제한 뒤 올려 주세요.");
-                const form = new FormData(); form.append("file", file);
-                await request(form); await refresh(); setMessage("파일을 보관했어요.");
-              } finally { if (input.current) input.current.value = ""; }
-            });
+          <p>여러 파일을 한 번에 선택하면 차례대로 업로드해요. 원본 파일 그대로 보관 · 파일당 최대 {sizeLabel(listing?.maxFile ?? 20971520)}</p>
+          <input ref={input} aria-label="업로드할 파일 선택" type="file" multiple disabled={busy} onChange={event => {
+            const files = Array.from(event.target.files ?? []); if (!files.length) return;
+            void uploadFiles(files);
           }} />
+          {uploads.length > 0 && <div className="drive-upload-results">
+            <p role="status" aria-live="polite">업로드 처리 {finishedUploads} / {uploads.length}개</p>
+            <progress max={uploads.length} value={finishedUploads} aria-label="파일 업로드 진행" />
+            <ul aria-label="파일별 업로드 결과">{uploads.map((item, index) => <li key={index} className={item.status === "error" ? "drive-upload-error" : ""}><b>{item.name}</b><span>{item.status === "waiting" ? "대기 중" : item.status === "uploading" ? "업로드 중…" : item.status === "success" ? "✓ 업로드 완료" : `실패 · ${item.detail}`}</span></li>)}</ul>
+          </div>}
         </div>
         <input className="drive-search" aria-label="파일 이름 검색" placeholder="파일 이름 검색" value={search} onChange={e => setSearch(e.target.value)} />
         <ul className="drive-file-list">

@@ -1,6 +1,23 @@
 import type { VocabularyItem } from "../../types";
 
 export type SimilarWordGroup = { sharedText: string; words: VocabularyItem[] };
+export type SimilarWordPair = { key: string; sharedText: string; words: [VocabularyItem, VocabularyItem] };
+
+// Yield pairs only as they are requested, including each pair just once.
+export function* similarWordPairs(groups: SimilarWordGroup[]): Generator<SimilarWordPair> {
+  const seen = new Set<string>();
+  for (const group of groups) {
+    for (let i = 0; i < group.words.length - 1; i++) {
+      for (let j = i + 1; j < group.words.length; j++) {
+        const words: [VocabularyItem, VocabularyItem] = [group.words[i], group.words[j]];
+        const key = JSON.stringify(words.map((word) => word.id).sort());
+        if (seen.has(key)) continue;
+        seen.add(key);
+        yield { key, sharedText: group.sharedText, words };
+      }
+    }
+  }
+}
 
 // Index four-character fragments rather than comparing every pair of words.
 export function findSimilarWords(words: VocabularyItem[]): SimilarWordGroup[] {
