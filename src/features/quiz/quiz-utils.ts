@@ -19,10 +19,12 @@ export function distinctAlternatives(values: string[], answer: string): string[]
   });
 }
 
-export function uniqueQuizQuestions(questions: QuizQuestion[]): QuizQuestion[] {
+export function uniqueQuizQuestions(questions: QuizQuestion[], options: { preserveWordEntries?: boolean } = {}): QuizQuestion[] {
   const seen = new Set<string>();
   return questions.filter((question) => {
-    const key = question.kind === "flashcard"
+    const key = options.preserveWordEntries && "wordId" in question && question.wordId
+      ? `word:${question.wordId}`
+      : question.kind === "flashcard"
       ? `${normalizeQuestionText(question.front)}:${normalizeQuestionText(question.back)}`
       : question.kind === "ordering" ? `ordering:${question.sentenceId}` : normalizeQuestionText(question.prompt);
     if (!key || seen.has(key)) return false;

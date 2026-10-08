@@ -1,16 +1,22 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import * as XLSX from "xlsx";
 import type { StudyProgress, VocabularyItem } from "../../types";
 import { buildVocabularySets, readStudySettings, toggleStudyMark, wordStudyKey, setVocabularySetSize } from "./study-sets";
 import { readWordQuizRecentResults, summarizeRecentResults } from "./recent-results";
+
+import { findSimilarWords } from "./similar-words";
 
 export function Wordbook({ words, progress, onUpdate, onDelete, onStudy, onProgress, onQuiz }: { words: VocabularyItem[]; progress: StudyProgress; onUpdate: (item: VocabularyItem) => void; onDelete: (id: string) => void; onStudy: () => void; onProgress: (next: StudyProgress) => void; onQuiz: () => void }) {
   const [query, setQuery] = useState("");
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const [exportMode, setExportMode] = useState<"full" | "compact">("full");
   const [expandedSets, setExpandedSets] = useState<number[]>([]);
+  const [showSimilar, setShowSimilar] = useState(false);
+  const similarGroups = useMemo(() => findSimilarWords(words), [words]);
+  const similarWordCount = new Set(similarGroups.flatMap((group) => group.words.map((word) => word.id))).size;
   const settings = readStudySettings(progress);
   const sets = buildVocabularySets(words, settings.setSize);
+  const setNumbers = new Map(sets.flatMap((set, index) => set.map((word) => [word.id, index + 1] as const)));
   const filtered = words.filter((item) => `${item.word} ${item.meaning}`.toLowerCase().includes(query.toLowerCase()));
   const recentResults = readWordQuizRecentResults(progress);
 
@@ -43,6 +49,11 @@ export function Wordbook({ words, progress, onUpdate, onDelete, onStudy, onProgr
       <div className="export-controls"><label><span>내보낼 내용</span><select value={exportMode} onChange={(event) => setExportMode(event.target.value as "full" | "compact")}><option value="full">전체 정보</option><option value="compact">단어 + 뜻만</option></select></label><button className="outline-button" onClick={exportExcel} disabled={!words.length}>↓ Excel 내보내기</button></div>
     </div>
     <section className="word-set-settings"><label>세트당 단어 수 <input aria-label="세트당 단어 수" type="number" min="1" max="500" value={settings.setSize} onChange={(event) => { const size = Math.min(500, Math.max(1, Math.trunc(Number(event.target.value)) || 1)); onProgress(setVocabularySetSize(progress, size)); setExpandedSets([]); }} />개</label><p>저장 순서대로 세트 1, 2…로 나눕니다. 퀴즈에서도 같은 세트를 선택해요.</p><button className="primary-button" onClick={onQuiz}>세트로 퀴즈 풀기 →</button></section>
+    <section className="similar-word-notice" aria-label="비슷한 단어 안내">
+      <div><strong>{similarWordCount ? `비슷하거나 중복된 단어가 ${similarWordCount}개 있어요.` : "4글자 이상 겹치는 단어가 없어요."}</strong><small>현재 단어장 전체에서 대소문자를 구분하지 않고 연속된 4글자 이상이 겹치는 단어를 찾아요.</small></div>
+      <button className="outline-button" aria-expanded={showSimilar} aria-controls="similar-word-list" disabled={!similarWordCount} onClick={() => setShowSimilar((value) => !value)}>{showSimilar ? "중복 확인 접기" : "중복 단어 확인"}</button>
+    </section>
+    {showSimilar && similarGroups.length > 0 && <section id="similar-word-list" className="similar-word-list" aria-label="중복 단어 확인 목록"><p>뜻이 다른 단어도 포함될 수 있어요. 단어는 자동으로 삭제하거나 합치지 않습니다.</p>{similarGroups.map((group) => <details key={group.words.map((word) => word.id).join(",")}><summary>겹치는 글자 “{group.sharedText}” · {group.words.length}개</summary><ul>{group.words.map((word) => <li key={word.id}><strong>{word.word}</strong><span>{word.meaning}</span><small>세트 {setNumbers.get(word.id)}</small><blockquote>{word.source_sentence}</blockquote></li>)}</ul></details>)}</section>}
     <div className="filter-bar"><input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="단어 또는 뜻 검색" /><span>{filtered.length} WORDS</span></div>
     {sets.map((set, setIndex) => {
       const visible = set.filter((word) => filtered.includes(word));

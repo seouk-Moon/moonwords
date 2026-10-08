@@ -33,3 +33,11 @@ test('cloze generation skips blanks already covered by saved words', () => {
 test('alternatives never repeat the correct answer or equivalent distractors', () => {
  assert.deepEqual(distinctAlternatives(['Alpha', 'ALPHA', ' beta ', 'Beta!', 'gamma'], 'alpha'), [' beta ', 'gamma']);
 });
+
+test('word quiz preserves every selected entry, including repeated words and meanings', () => {
+ for (const kind of ['choice','written','flashcard']) {
+  const entries = ['one','two','three'].map(wordId => ({kind,wordId,prompt:'same prompt',front:'same front',back:'same back'}));
+  assert.equal(uniqueQuizQuestions(entries, {preserveWordEntries:true}).length,3);
+  assert.equal(uniqueQuizQuestions([...entries,entries[0]], {preserveWordEntries:true}).length,3);
+ }
+});
