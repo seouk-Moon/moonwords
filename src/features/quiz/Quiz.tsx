@@ -133,7 +133,7 @@ export function Quiz({ doc, words, progress, generationJob, onClose, onGenerate,
     }
     if (mode === "cloze") {
       const savedWordQuestions = quizWordsSnapshot.filter((word) => selectedWordSnapshot.includes(word.id)).map((word): ChoiceQuizQuestion => {
-        const blank = word.source_sentence.replace(new RegExp(`\\b${word.word.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`, "i"), "______");
+        const blank = (word.source_sentence.trim() ? word.source_sentence : `______ — ${word.meaning}`).replace(new RegExp(`\\b${word.word.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`, "i"), "______");
         const alternatives = shuffle(distinctAlternatives(quizWordsSnapshot.filter((item) => item.id !== word.id).map((item) => item.word), word.word)).slice(0, 3);
         const options = shuffle([word.word, ...alternatives]);
         return { kind: "choice", prompt: blank, options, answer: options.indexOf(word.word), explanation: `${word.word} — ${word.meaning}`, wordId: word.id, sourceSentence: word.source_sentence, testedPart: word.word };

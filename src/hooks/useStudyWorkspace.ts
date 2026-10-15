@@ -12,6 +12,8 @@ import { readStudySettings, recordStudyOutcome, writeStudySettings } from "../fe
 import { appendWordQuizResult } from "../features/vocabulary/recent-results";
 import { useLearningAnalytics } from "./useLearningAnalytics";
 import type { CollectionOptions } from "../features/library/CreateWordbookPanel";
+import type { ManualWordDraft } from "../features/vocabulary/AddWordForm";
+import { loadSourceStars } from "../features/vocabulary/collection-star-sync";
 import type { QuizMode } from "../app-types";
 
 const createDemoProgress = (): StudyProgress => ({
@@ -42,6 +44,7 @@ const normalizeDocumentLevel = (document: StudyDocument): StudyDocument => ({
 export function useStudyWorkspace(configured: boolean) {
   const [session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState(configured);
+  const [collectionSyncNotice, setCollectionSyncNotice] = useState("");
   const [documents, setDocuments] = useState<StudyDocument[]>(configured ? [] : [demoDocument]);
   const [folders, setFolders] = useState<DocumentFolder[]>([]);
   const [current, setCurrent] = useState<StudyDocument | null>(configured ? null : demoDocument);
@@ -108,8 +111,8 @@ export function useStudyWorkspace(configured: boolean) {
     ]);
 
     if (requestId !== openRequest.current || wordResult.error || progressResult.error) return;
-    activate();
-    setWords((wordResult.data ?? []) as VocabularyItem[]);
+    setCollectionSyncNotice("");
+    const nextWords = (wordResult.data ?? []) as VocabularyItem[];
     let nextProgress: StudyProgress = {
       ...((progressResult.data as StudyProgress | null) ?? {
         user_id: session.user.id,
@@ -124,14 +127,25 @@ export function useStudyWorkspace(configured: boolean) {
     const mergedSettings = readStudySettings(nextProgress);
     const cacheRecovery = mergedSettings.setSizeUpdatedAt && !nextProgress.sentence_notes?.__moonwords_study_sets_v1?.includes(mergedSettings.setSizeUpdatedAt);
     if (cacheRecovery) nextProgress = writeStudySettings(nextProgress, mergedSettings);
+    const beforeSourceSync = nextProgress;
+    let sourceSyncFailed = false;
+    if (doc.analysis.collection) {
+      try { nextProgress = await loadSourceStars(supabase, session.user.id, doc, nextWords, nextProgress); }
+      catch { sourceSyncFailed = true; }
+    }
+    if (requestId !== openRequest.current) return;
+    setCollectionSyncNotice(sourceSyncFailed ? "원본 별표를 확인하지 못했어요. 통합 단어장을 다시 열어 주세요." : "");
+    const sourceRecovery = nextProgress !== beforeSourceSync;
+    activate();
+    setWords(nextWords);
     progressRef.current = nextProgress;
     setProgress(nextProgress);
     const client = supabase;
     const userId = session.user.id;
     progressWrites.current = progressWrites.current.catch(() => {}).then(async () => {
-      // Existing rows get a timestamp update only; never overwrite notes just by opening.
-      const result = !progressResult.data || cacheRecovery
-        ? await client.from("study_progress").upsert({ ...nextProgress, user_id: userId }, { onConflict: "user_id,document_id", ignoreDuplicates: !cacheRecovery })
+      // Preserve notes on ordinary opens; persist recovered settings or inherited stars.
+      const result = !progressResult.data || cacheRecovery || sourceRecovery
+        ? await client.from("study_progress").upsert({ ...nextProgress, user_id: userId }, { onConflict: "user_id,document_id", ignoreDuplicates: !cacheRecovery && !sourceRecovery })
         : await client.from("study_progress").update({ last_studied_at: now }).eq("user_id", userId).eq("document_id", doc.id);
       if (result.error) throw new Error(result.error.message);
     });
@@ -140,10 +154,12 @@ export function useStudyWorkspace(configured: boolean) {
 
   const saveWord = async (
     payload: Omit<VocabularyItem, "id" | "user_id" | "created_at" | "updated_at">,
+    failLoudly = false,
   ) => {
+    const wordSaveRequest = openRequest.current;
     if (
       words.some(
-        (item) => item.sentence_id === payload.sentence_id && item.word.toLowerCase() === payload.word.toLowerCase(),
+        (item) => item.sentence_id === payload.sentence_id && item.word.trim().toLowerCase() === payload.word.trim().toLowerCase() && item.meaning.trim().toLowerCase() === payload.meaning.trim().toLowerCase(),
       )
     ) return;
 
@@ -160,11 +176,21 @@ export function useStudyWorkspace(configured: boolean) {
       .insert({ ...payload, user_id: session.user.id })
       .select()
       .single();
+    if (result.error && failLoudly) throw new Error(result.error.message);
     if (!result.error) {
       const created = result.data as VocabularyItem;
-      setWords((items) => [...items, created]);
+      if (wordSaveRequest === openRequest.current) setWords((items) => [...items, created]);
       learning.recordWordSaved(created.id);
     }
+  };
+
+  const addManualWord = async (draft: ManualWordDraft) => {
+    if (!current) throw new Error("먼저 단어장을 열어 주세요.");
+    const clean = (value: string) => value.normalize("NFKC").trim().toLowerCase().replace(/\s+/g, " ");
+    if (!draft.word.trim() || !draft.meaning.trim()) throw new Error("단어와 뜻을 입력해 주세요.");
+    if (words.some((word) => clean(word.word) === clean(draft.word) && clean(word.meaning) === clean(draft.meaning))) throw new Error("같은 단어와 뜻이 이미 단어장에 있어요.");
+    const sentence = draft.source_sentence ? current.analysis.sentences.find((item) => clean(item.english) === clean(draft.source_sentence)) : undefined;
+    await saveWord({ ...draft, document_id: current.id, sentence_id: sentence?.id ?? -1, status: "learning", review_count: 0, correct_count: 0, incorrect_count: 0 }, true);
   };
 
   const updateWord = async (item: VocabularyItem) => {
@@ -490,6 +516,8 @@ export function useStudyWorkspace(configured: boolean) {
     setView,
     openDocument,
     saveWord,
+    addManualWord,
+    collectionSyncNotice,
     updateWord,
     deleteWord,
     saveProgress,

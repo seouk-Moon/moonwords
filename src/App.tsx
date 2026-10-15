@@ -191,6 +191,9 @@ export default function App({ supabaseUrl, supabasePublishableKey }: AppProps = 
 
       {!infoPage && workspace.current && workspace.view === "words" && (
         <Wordbook
+          key={workspace.current.id}
+          onAdd={workspace.addManualWord}
+          syncNotice={workspace.collectionSyncNotice}
           words={workspace.words}
           progress={workspace.progress}
           onUpdate={workspace.updateWord}

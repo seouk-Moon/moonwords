@@ -1,3 +1,4 @@
+import { AddWordForm, type ManualWordDraft } from "./AddWordForm";
 import { useMemo, useState } from "react";
 import { WordSourceLabel } from "./WordSourceLabel";
 import { readWordSources } from "./word-sources";
@@ -9,7 +10,7 @@ import { readWordQuizRecentResults, summarizeRecentResults } from "./recent-resu
 import "./similar-words.css";
 import { findSimilarWords, similarWordPairs, normalizeVocabularyWord } from "./similar-words";
 
-export function Wordbook({ words, progress, onUpdate, onDelete, onStudy, onProgress, onQuiz }: { words: VocabularyItem[]; progress: StudyProgress; onUpdate: (item: VocabularyItem) => void; onDelete: (id: string) => void; onStudy: () => void; onProgress: (next: StudyProgress) => void; onQuiz: () => void }) {
+export function Wordbook({ words, progress, onUpdate, onDelete, onStudy, onProgress, onQuiz, onAdd, syncNotice }: { words: VocabularyItem[]; progress: StudyProgress; onUpdate: (item: VocabularyItem) => void; onDelete: (id: string) => void; onStudy: () => void; onProgress: (next: StudyProgress) => void; onQuiz: () => void; onAdd?: (draft: ManualWordDraft) => Promise<void>; syncNotice?: string }) {
   const [query, setQuery] = useState("");
   const [wordFilter, setWordFilter] = useState<"all" | "starred" | "important">("all");
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
@@ -87,6 +88,8 @@ export function Wordbook({ words, progress, onUpdate, onDelete, onStudy, onProgr
       <div><span className="eyebrow">MY VOCABULARY</span><h1>단어장</h1><p>드래그해 저장한 뜻과 원문을 함께 복습하세요.</p></div>
       <div className="export-controls"><label><span>내보낼 내용</span><select value={exportMode} onChange={(event) => setExportMode(event.target.value as "full" | "compact")}><option value="full">전체 정보</option><option value="compact">단어 + 뜻만</option></select></label><button className="outline-button" onClick={exportExcel} disabled={!words.length}>↓ Excel 내보내기</button></div>
     </div>
+    {onAdd && <AddWordForm onAdd={onAdd} onSaved={() => { setQuery(""); setWordFilter("all"); setShowSimilar(false); setExpandedSets([Math.floor(words.length / settings.setSize)]); }} />}
+    {syncNotice && <p role="status">{syncNotice}</p>}
     <section className="word-set-settings"><label>세트당 단어 수 <input aria-label="세트당 단어 수" type="number" min="1" max="500" value={settings.setSize} onChange={(event) => { const size = Math.min(500, Math.max(1, Math.trunc(Number(event.target.value)) || 1)); onProgress(setVocabularySetSize(progress, size)); setExpandedSets([]); }} />개</label><p>저장 순서대로 세트 1, 2…로 나눕니다. 퀴즈에서도 같은 세트를 선택해요.</p><button className="primary-button" onClick={onQuiz}>세트로 퀴즈 풀기 →</button></section>
     <section className="similar-word-notice" aria-label="비슷한 단어 안내">
       <div><strong>{similarWordCount ? `품사를 제외하고 같은 단어가 ${similarWordCount}개 있어요.` : "품사를 제외하고 같은 단어가 없어요."}</strong><small>현재 단어장 전체에서 품사 표기·대소문자·불필요한 공백을 제외하고 같은 단어를 찾아요. 뜻이 달라도 비교할 수 있어요.</small></div>
@@ -94,7 +97,7 @@ export function Wordbook({ words, progress, onUpdate, onDelete, onStudy, onProgr
     </section>
     {showSimilar && <section id="similar-word-list" className="similar-word-list" aria-label="중복 단어 확인 목록">{pairNavigation ? <>
       <div className="similar-pair-heading"><div><strong>같은 단어 “{pairNavigation.current.sharedText}”</strong><p>{normalizeVocabularyWord(pairNavigation.current.words[0].meaning) === normalizeVocabularyWord(pairNavigation.current.words[1].meaning) ? "저장된 뜻도 같아요." : "같은 단어지만 저장된 뜻이 달라요. 예문과 문맥을 비교해 주세요."} 필요한 항목만 삭제하세요.</p></div><button className="outline-button" disabled={pairNavigation.next.key === pairNavigation.current.key} onClick={() => { setSelectedPair(pairNavigation.next.key); setConfirmDeleteId(null); }}>다음 중복쌍 →</button></div>
-      <div className="word-list similar-pair-cards">{pairNavigation.current.words.map((word) => <div key={word.id}><small className="similar-pair-set">세트 {setNumbers.get(word.id)}</small>{renderWordCard(word)}</div>)}</div>
+      <div className="word-list similar-pair-cards">{pairNavigation.current.words.map((word: VocabularyItem) => <div key={word.id}><small className="similar-pair-set">세트 {setNumbers.get(word.id)}</small>{renderWordCard(word)}</div>)}</div>
     </> : <p>품사를 제외하고 같은 단어가 없어요.</p>}</section>}
     {!showSimilar && <>
     <div className="word-mark-filters" role="group" aria-label="단어 표시 필터">{([["all", "전체 보기"], ["starred", "별표만 보기"], ["important", "더 중요만 보기"]] as const).map(([scope, label]) => <button key={scope} className={wordFilter === scope ? "active" : ""} aria-pressed={wordFilter === scope} onClick={() => { setWordFilter(scope); setConfirmDeleteId(null); setExpandedSets(scope === "all" ? [] : sets.map((_, index) => index)); }}>{label}<span>{scope === "all" ? words.length : words.filter((word) => settings[scope].includes(wordStudyKey(word.id))).length}</span></button>)}</div>
