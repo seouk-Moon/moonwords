@@ -172,6 +172,8 @@ export default function App({ supabaseUrl, supabasePublishableKey }: AppProps = 
         />
       )}
 
+      {!infoPage && workspace.current && workspace.view !== "words" && workspace.collectionSyncNotice && <p className="drive-message" role="status">{workspace.collectionSyncNotice}</p>}
+
       {!infoPage && workspace.current && workspace.view === "study" && (
         <StudyView
           key={workspace.current.id}

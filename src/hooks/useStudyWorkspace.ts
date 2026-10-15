@@ -13,7 +13,6 @@ import { appendWordQuizResult } from "../features/vocabulary/recent-results";
 import { useLearningAnalytics } from "./useLearningAnalytics";
 import type { CollectionOptions } from "../features/library/CreateWordbookPanel";
 import type { ManualWordDraft } from "../features/vocabulary/AddWordForm";
-import { loadSourceStars } from "../features/vocabulary/collection-star-sync";
 import type { QuizMode } from "../app-types";
 
 const createDemoProgress = (): StudyProgress => ({
@@ -91,10 +90,10 @@ export function useStudyWorkspace(configured: boolean) {
   const openDocument = useCallback(async (doc: StudyDocument) => {
     const requestId = ++openRequest.current;
     const now = new Date().toISOString();
-    const normalizedDocument = normalizeDocumentLevel({ ...doc, last_studied_at: now });
+    let normalizedDocument = normalizeDocumentLevel({ ...doc, last_studied_at: now });
     const activate = () => {
       setCurrent(normalizedDocument);
-      setDocuments((items) => items.map((item) => item.id === doc.id ? { ...item, last_studied_at: now } : item));
+      setDocuments((items) => items.map((item) => item.id === doc.id ? normalizedDocument : item));
       setView(doc.analysis.collection ? "words" : "study");
     };
     if (!supabase || !session) {
@@ -104,14 +103,38 @@ export function useStudyWorkspace(configured: boolean) {
     }
 
     // Reopening must not read a snapshot from before the last settings save.
-    await progressWrites.current.catch(() => {});
+    let syncNotice = "";
+    await progressWrites.current.catch(() => { syncNotice = "앞선 변경을 저장하지 못했어요. 원본의 별표를 다시 확인해 주세요."; });
+    if (doc.analysis.collection) {
+      const synced = await supabase.rpc("sync_vocabulary_collection_stars", { p_collection_id: doc.id });
+      if (requestId !== openRequest.current) return;
+      if (synced.error) {
+        syncNotice = synced.error.code === "PGRST202" || synced.error.code === "42883"
+          ? "새 별표 단어 자동 추가를 사용하려면 동봉된 Supabase 동기화 SQL을 먼저 실행해 주세요."
+          : "원본의 새 별표 단어를 동기화하지 못했어요. 통합 단어장을 다시 열어 주세요.";
+      } else {
+        const data = synced.data as { document?: StudyDocument; skippedCount?: number } | null;
+        if (data?.document?.id === doc.id) normalizedDocument = normalizeDocumentLevel({ ...data.document, last_studied_at: now });
+        if (data?.skippedCount) syncNotice = "통합 단어장이 5000개에 도달해 일부 별표 단어를 추가하지 못했어요.";
+      }
+    }
+    const wordClient = supabase;
+    const fetchWords = async () => {
+      const data: VocabularyItem[] = [];
+      for (let offset = 0; ; offset += 1000) {
+        const page = await wordClient.from("vocabulary").select("*").eq("document_id", doc.id).order("created_at").order("id").range(offset, offset + 999);
+        if (page.error) return { data: null, error: page.error };
+        data.push(...(page.data ?? []) as VocabularyItem[]);
+        if ((page.data?.length ?? 0) < 1000) return { data, error: null };
+      }
+    };
     const [wordResult, progressResult] = await Promise.all([
-      supabase.from("vocabulary").select("*").eq("document_id", doc.id).order("created_at"),
+      fetchWords(),
       supabase.from("study_progress").select("*").eq("document_id", doc.id).maybeSingle(),
     ]);
 
     if (requestId !== openRequest.current || wordResult.error || progressResult.error) return;
-    setCollectionSyncNotice("");
+    setCollectionSyncNotice(syncNotice);
     const nextWords = (wordResult.data ?? []) as VocabularyItem[];
     let nextProgress: StudyProgress = {
       ...((progressResult.data as StudyProgress | null) ?? {
@@ -127,15 +150,7 @@ export function useStudyWorkspace(configured: boolean) {
     const mergedSettings = readStudySettings(nextProgress);
     const cacheRecovery = mergedSettings.setSizeUpdatedAt && !nextProgress.sentence_notes?.__moonwords_study_sets_v1?.includes(mergedSettings.setSizeUpdatedAt);
     if (cacheRecovery) nextProgress = writeStudySettings(nextProgress, mergedSettings);
-    const beforeSourceSync = nextProgress;
-    let sourceSyncFailed = false;
-    if (doc.analysis.collection) {
-      try { nextProgress = await loadSourceStars(supabase, session.user.id, doc, nextWords, nextProgress); }
-      catch { sourceSyncFailed = true; }
-    }
     if (requestId !== openRequest.current) return;
-    setCollectionSyncNotice(sourceSyncFailed ? "원본 별표를 확인하지 못했어요. 통합 단어장을 다시 열어 주세요." : "");
-    const sourceRecovery = nextProgress !== beforeSourceSync;
     activate();
     setWords(nextWords);
     progressRef.current = nextProgress;
@@ -143,9 +158,9 @@ export function useStudyWorkspace(configured: boolean) {
     const client = supabase;
     const userId = session.user.id;
     progressWrites.current = progressWrites.current.catch(() => {}).then(async () => {
-      // Preserve notes on ordinary opens; persist recovered settings or inherited stars.
-      const result = !progressResult.data || cacheRecovery || sourceRecovery
-        ? await client.from("study_progress").upsert({ ...nextProgress, user_id: userId }, { onConflict: "user_id,document_id", ignoreDuplicates: !cacheRecovery && !sourceRecovery })
+      // The server synchronizes members and stars; ordinary opens preserve notes.
+      const result = !progressResult.data || cacheRecovery
+        ? await client.from("study_progress").upsert({ ...nextProgress, user_id: userId }, { onConflict: "user_id,document_id", ignoreDuplicates: !cacheRecovery })
         : await client.from("study_progress").update({ last_studied_at: now }).eq("user_id", userId).eq("document_id", doc.id);
       if (result.error) throw new Error(result.error.message);
     });
@@ -237,7 +252,7 @@ export function useStudyWorkspace(configured: boolean) {
         const result = await client.from("study_progress").upsert({ ...next, user_id: userId }, { onConflict: "user_id,document_id" });
         if (result.error) throw new Error(result.error.message);
       });
-      void progressWrites.current.catch(() => {});
+      void progressWrites.current.catch(() => { setCollectionSyncNotice("학습 표시 저장에 실패했어요. 원본 별표를 다시 확인하고 재시도해 주세요."); });
     }
   };
 
