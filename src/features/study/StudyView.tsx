@@ -5,6 +5,7 @@ import { buildStudySectionGroups } from "../../lib/analysis-normalization";
 import { describeCefrLevel, formatCefrLevel } from "../../lib/cefr";
 import type { SelectedWord } from "../../app-types";
 import type { DocumentAnalysis, StudyDocument, StudyProgress, VocabularyItem } from "../../types";
+import { collectSuggestedWords, type SuggestedWord } from "./suggested-words";
 import { HighlightedEnglish } from "./HighlightedEnglish";
 import { ListeningControls, PlaybackIcon } from "./ListeningControls";
 
@@ -20,28 +21,6 @@ type Props = {
   onUpdateSentence: (documentId: string, sentenceId: number, english: string, korean: string) => Promise<void>;
   onDeleteSentence: (documentId: string, sentenceId: number) => Promise<void>;
   onFullListeningComplete: () => void;
-};
-
-type SuggestedWord = { word: string; meaning: string; sentenceId: number; sourceSentence: string; translation: string };
-
-const collectSuggestedWords = (sentences: DocumentAnalysis["sentences"], words: VocabularyItem[], sentenceIds?: Set<number>) => {
-  const seen = new Set<string>();
-  const saved = new Set(words.map((item) => item.word.trim().toLowerCase()));
-  return sentences.flatMap((sentence) => {
-    if (sentenceIds && !sentenceIds.has(sentence.id)) return [];
-    return sentence.keywords.map((keyword) => ({
-      word: keyword.word,
-      meaning: keyword.meaning,
-      sentenceId: sentence.id,
-      sourceSentence: sentence.english,
-      translation: sentence.korean,
-    }));
-  }).filter((item) => {
-    const key = item.word.trim().toLowerCase();
-    if (!key || seen.has(key) || saved.has(key)) return false;
-    seen.add(key);
-    return true;
-  });
 };
 
 export function StudyView({ doc, words, progress, onSaveWord, onDeleteWord, onProgress, onRenameDocument, onUpdateAnalysis, onUpdateSentence, onDeleteSentence, onFullListeningComplete }: Props) {

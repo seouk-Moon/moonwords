@@ -19,30 +19,30 @@ export function* similarWordPairs(groups: SimilarWordGroup[]): Generator<Similar
   }
 }
 
-// Index four-character fragments rather than comparing every pair of words.
-export function findSimilarWords(words: VocabularyItem[]): SimilarWordGroup[] {
-  const fragments = new Map<string, number[]>();
-  words.forEach((word, index) => {
-    const tokens = word.word.normalize("NFKC").toLowerCase().match(/[\p{L}\p{N}]+/gu) ?? [];
-    const seen = new Set<string>();
-    for (const token of tokens) {
-      const characters = Array.from(token);
-      for (let i = 0; i <= characters.length - 4; i++) seen.add(characters.slice(i, i + 4).join(""));
-    }
-    for (const fragment of seen) {
-      const entries = fragments.get(fragment);
-      if (entries) entries.push(index);
-      else fragments.set(fragment, [index]);
-    }
+const partOfSpeech = /^(?:n|v|vt|vi|a|adj|adv|ad|prep|pron|conj|det|art|int|interj|aux|modal|phr|noun|verb|adjective|adverb|preposition|pronoun|conjunction|article|determiner|interjection|auxiliary|명|명사|대명사|동|동사|자동사|타동사|형|형용사|부|부사|전치사|접속사|관사|감탄사|조동사|한정사)\.?$/i;
+
+export function normalizeVocabularyWord(value: string): string {
+  let text = value.normalize("NFKC").toLowerCase().replace(/[‘’]/g, "'").trim();
+  // Remove only recognized POS annotations; keep other parenthetical content.
+  text = text.replace(/\(([^()]*)\)|\[([^\[\]]*)\]|【([^】]*)】/g, (annotation, ...groups) => {
+    const content = (groups.slice(0, 3).find((group) => typeof group === "string") ?? "") as string;
+    const labels = content.trim().split(/[\s,;/·&+|]+/).filter(Boolean);
+    return labels.length && labels.every((label) => partOfSpeech.test(label)) ? " " : annotation;
   });
-  const groups: SimilarWordGroup[] = [];
-  const seenGroups = new Set<string>();
-  for (const [sharedText, indices] of fragments) {
-    if (indices.length < 2) continue;
-    const key = indices.join(",");
-    if (seenGroups.has(key)) continue;
-    seenGroups.add(key);
-    groups.push({ sharedText, words: indices.map((index) => words[index]) });
-  }
-  return groups;
+  text = text.replace(/(^|[\s,;:])(?:n|v|vt|vi|a|adj|adv|ad|prep|pron|conj|det|art|int|interj|aux|modal|phr)\.(?=\s|$)/g, " ");
+  text = text.replace(/^(?:명사|대명사|동사|자동사|타동사|형용사|부사|전치사|접속사|관사|감탄사|조동사|한정사)\s+|\s+(?:명사|대명사|동사|자동사|타동사|형용사|부사|전치사|접속사|관사|감탄사|조동사|한정사)$/g, " ");
+  return text.replace(/\s+/g, " ").replace(/^[,;:\s]+|[,;:\s]+$/g, "").trim();
+}
+
+// Group identical vocabulary keys instead of matching partial spellings.
+export function findSimilarWords(words: VocabularyItem[]): SimilarWordGroup[] {
+  const entries = new Map<string, VocabularyItem[]>();
+  words.forEach((word) => {
+    const key = normalizeVocabularyWord(word.word);
+    if (!key) return;
+    const group = entries.get(key);
+    if (group) group.push(word);
+    else entries.set(key, [word]);
+  });
+  return [...entries].filter(([, items]) => items.length > 1).map(([sharedText, words]) => ({ sharedText, words }));
 }

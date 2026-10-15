@@ -5,10 +5,11 @@ import { buildVocabularySets, readStudySettings, toggleStudyMark, wordStudyKey, 
 import { readWordQuizRecentResults, summarizeRecentResults } from "./recent-results";
 
 import "./similar-words.css";
-import { findSimilarWords, similarWordPairs } from "./similar-words";
+import { findSimilarWords, similarWordPairs, normalizeVocabularyWord } from "./similar-words";
 
 export function Wordbook({ words, progress, onUpdate, onDelete, onStudy, onProgress, onQuiz }: { words: VocabularyItem[]; progress: StudyProgress; onUpdate: (item: VocabularyItem) => void; onDelete: (id: string) => void; onStudy: () => void; onProgress: (next: StudyProgress) => void; onQuiz: () => void }) {
   const [query, setQuery] = useState("");
+  const [wordFilter, setWordFilter] = useState<"all" | "starred" | "important">("all");
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const [exportMode, setExportMode] = useState<"full" | "compact">("full");
   const [expandedSets, setExpandedSets] = useState<number[]>([]);
@@ -19,7 +20,7 @@ export function Wordbook({ words, progress, onUpdate, onDelete, onStudy, onProgr
   const settings = readStudySettings(progress);
   const sets = buildVocabularySets(words, settings.setSize);
   const setNumbers = new Map(sets.flatMap((set, index) => set.map((word) => [word.id, index + 1] as const)));
-  const filtered = words.filter((item) => `${item.word} ${item.meaning}`.toLowerCase().includes(query.toLowerCase()));
+  const filtered = words.filter((item) => `${item.word} ${item.meaning}`.toLowerCase().includes(query.toLowerCase()) && (wordFilter === "all" || settings[wordFilter].includes(wordStudyKey(item.id))));
   const recentResults = readWordQuizRecentResults(progress);
 
   const pairNavigation = useMemo(() => {
@@ -85,22 +86,23 @@ export function Wordbook({ words, progress, onUpdate, onDelete, onStudy, onProgr
     </div>
     <section className="word-set-settings"><label>세트당 단어 수 <input aria-label="세트당 단어 수" type="number" min="1" max="500" value={settings.setSize} onChange={(event) => { const size = Math.min(500, Math.max(1, Math.trunc(Number(event.target.value)) || 1)); onProgress(setVocabularySetSize(progress, size)); setExpandedSets([]); }} />개</label><p>저장 순서대로 세트 1, 2…로 나눕니다. 퀴즈에서도 같은 세트를 선택해요.</p><button className="primary-button" onClick={onQuiz}>세트로 퀴즈 풀기 →</button></section>
     <section className="similar-word-notice" aria-label="비슷한 단어 안내">
-      <div><strong>{similarWordCount ? `비슷하거나 중복된 단어가 ${similarWordCount}개 있어요.` : "4글자 이상 겹치는 단어가 없어요."}</strong><small>현재 단어장 전체에서 대소문자를 구분하지 않고 연속된 4글자 이상이 겹치는 단어를 찾아요.</small></div>
+      <div><strong>{similarWordCount ? `품사를 제외하고 같은 단어가 ${similarWordCount}개 있어요.` : "품사를 제외하고 같은 단어가 없어요."}</strong><small>현재 단어장 전체에서 품사 표기·대소문자·불필요한 공백을 제외하고 같은 단어를 찾아요. 뜻이 달라도 비교할 수 있어요.</small></div>
       <button className="outline-button" aria-expanded={showSimilar} aria-controls="similar-word-list" disabled={!similarWordCount && !showSimilar} onClick={() => setShowSimilar((value) => !value)}>{showSimilar ? "중복 확인 접기" : "중복 단어 확인"}</button>
     </section>
     {showSimilar && <section id="similar-word-list" className="similar-word-list" aria-label="중복 단어 확인 목록">{pairNavigation ? <>
-      <div className="similar-pair-heading"><div><strong>겹치는 글자 “{pairNavigation.current.sharedText}”</strong><p>아래 두 단어를 비교하고 필요한 항목을 삭제하세요.</p></div><button className="outline-button" disabled={pairNavigation.next.key === pairNavigation.current.key} onClick={() => { setSelectedPair(pairNavigation.next.key); setConfirmDeleteId(null); }}>다음 중복쌍 →</button></div>
+      <div className="similar-pair-heading"><div><strong>같은 단어 “{pairNavigation.current.sharedText}”</strong><p>{normalizeVocabularyWord(pairNavigation.current.words[0].meaning) === normalizeVocabularyWord(pairNavigation.current.words[1].meaning) ? "저장된 뜻도 같아요." : "같은 단어지만 저장된 뜻이 달라요. 예문과 문맥을 비교해 주세요."} 필요한 항목만 삭제하세요.</p></div><button className="outline-button" disabled={pairNavigation.next.key === pairNavigation.current.key} onClick={() => { setSelectedPair(pairNavigation.next.key); setConfirmDeleteId(null); }}>다음 중복쌍 →</button></div>
       <div className="word-list similar-pair-cards">{pairNavigation.current.words.map((word) => <div key={word.id}><small className="similar-pair-set">세트 {setNumbers.get(word.id)}</small>{renderWordCard(word)}</div>)}</div>
-    </> : <p>4글자 이상 겹치는 단어가 없어요.</p>}</section>}
+    </> : <p>품사를 제외하고 같은 단어가 없어요.</p>}</section>}
     {!showSimilar && <>
+    <div className="word-mark-filters" role="group" aria-label="단어 표시 필터">{([["all", "전체 보기"], ["starred", "별표만 보기"], ["important", "더 중요만 보기"]] as const).map(([scope, label]) => <button key={scope} className={wordFilter === scope ? "active" : ""} aria-pressed={wordFilter === scope} onClick={() => { setWordFilter(scope); setConfirmDeleteId(null); setExpandedSets(scope === "all" ? [] : sets.map((_, index) => index)); }}>{label}<span>{scope === "all" ? words.length : words.filter((word) => settings[scope].includes(wordStudyKey(word.id))).length}</span></button>)}</div>
     <div className="filter-bar"><input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="단어 또는 뜻 검색" /><span>{filtered.length} WORDS</span></div>
     {sets.map((set, setIndex) => {
       const visible = set.filter((word) => filtered.includes(word));
       if (!visible.length) return null;
       const collapsed = !query && !expandedSets.includes(setIndex);
-      return <section className="word-set" key={setIndex}><button className="word-set-heading" aria-expanded={!collapsed} onClick={() => setExpandedSets((items) => items.includes(setIndex) ? items.filter((id) => id !== setIndex) : [...items, setIndex])}><strong>세트 {setIndex + 1}</strong><span>{set.length}개{query ? ` · 검색 ${visible.length}개` : ""}</span><b>{collapsed ? "펼치기 ▾" : "접기 ▴"}</b></button>
+      return <section className="word-set" key={setIndex}><button className="word-set-heading" aria-expanded={!collapsed} onClick={() => setExpandedSets((items) => items.includes(setIndex) ? items.filter((id) => id !== setIndex) : [...items, setIndex])}><strong>세트 {setIndex + 1}</strong><span>{set.length}개{query || wordFilter !== "all" ? ` · 표시 ${visible.length}개` : ""}</span><b>{collapsed ? "펼치기 ▾" : "접기 ▴"}</b></button>
     {!collapsed && <div className="word-list">{visible.map(renderWordCard)}</div>}</section>; })}
-    {!filtered.length && <div className="empty-state"><b>{words.length ? "검색 결과가 없어요." : "아직 저장한 단어가 없어요."}</b><p>본문에서 모르는 단어를 드래그하면 여기에 쌓입니다.</p><button className="primary-button" onClick={onStudy}>본문으로 가기</button></div>}
+    {!filtered.length && <div className="empty-state"><b>{words.length ? wordFilter === "starred" ? "현재 조건에 맞는 별표한 단어가 없어요." : wordFilter === "important" ? "현재 조건에 맞는 더 중요 표시한 단어가 없어요." : "검색 결과가 없어요." : "아직 저장한 단어가 없어요."}</b><p>본문에서 모르는 단어를 드래그하면 여기에 쌓입니다.</p><button className="primary-button" onClick={onStudy}>본문으로 가기</button></div>}
     </>}
   </main>;
 }
