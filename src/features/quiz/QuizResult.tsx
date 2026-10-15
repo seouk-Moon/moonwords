@@ -1,4 +1,8 @@
+import { WordSourceLabel } from "../vocabulary/WordSourceLabel";
+import { questionWordSources } from "../vocabulary/word-sources";
+import type { VocabularyItem } from "../../types";
 import { useState } from "react";
+import { QuizPromptText } from "./QuizPromptText";
 import type { StudySettings } from "../vocabulary/study-sets";
 import type { QuizMistakeReviewItem } from "../../app-types";
 
@@ -13,6 +17,7 @@ const HighlightedMistakeSentence = ({ sentence, testedPart }: { sentence: string
 };
 
 export function QuizResult({
+  sourceWords = [],
   studySettings,
   onToggleMark,
   score,
@@ -27,6 +32,7 @@ export function QuizResult({
   nextSetLabel,
   onNextSet,
 }: {
+  sourceWords?: VocabularyItem[];
   studySettings?: StudySettings;
   onToggleMark?: (key: string, mark: "starred" | "important") => void;
   score: number;
@@ -42,6 +48,12 @@ export function QuizResult({
   onNextSet?: () => void;
 }) {
   const [showMistakes, setShowMistakes] = useState(false);
+
+  const sources = (mistake: QuizMistakeReviewItem) => questionWordSources({
+    wordId: mistake.studyKey?.startsWith("word:") ? mistake.studyKey.slice(5) : undefined,
+    sentenceId: mistake.studyKey?.startsWith("ordering:") ? Number(mistake.studyKey.slice(9)) : undefined,
+    sourceSentence: mistake.sourceSentence,
+  }, sourceWords);
 
   const marks = (mistake: QuizMistakeReviewItem) => mistake.studyKey && studySettings && onToggleMark ? (
     <div className="study-marks mistake-review-marks">
@@ -83,6 +95,7 @@ export function QuizResult({
                     <HighlightedMistakeSentence sentence={mistake.sourceSentence || mistake.prompt} testedPart={mistake.testedPart} />
                   </p>
                   <p className="flashcard-mistake-meaning">{mistake.answer}</p>
+                  <WordSourceLabel sources={sources(mistake)} />
                   {marks(mistake)}
                 </div>
               </article>
@@ -90,7 +103,8 @@ export function QuizResult({
               <article key={mistake.id}>
                 <span>{index + 1}</span>
                 <div>
-                  <h3>{mistake.prompt}</h3>
+                  <h3><QuizPromptText text={mistake.prompt} /></h3>
+                  <WordSourceLabel sources={sources(mistake)} />
                   {marks(mistake)}
                   {mistake.sourceSentence && (
                     <div className="mistake-source-sentence">
@@ -99,7 +113,6 @@ export function QuizResult({
                     </div>
                   )}
                   {mistake.testedPart && <p className="mistake-tested-copy"><b>출제 부분</b><span>{mistake.testedPart}</span></p>}
-                  {mistake.selected && <p className="mistake-selected"><b>내 답</b><span>{mistake.selected}</span></p>}
                   <p className="mistake-answer"><b>정답</b><span>{mistake.answer}</span></p>
                   {mistake.explanation && mistake.explanation.trim() !== mistake.sourceSentence?.trim() && <small className="mistake-explanation">{mistake.explanation}</small>}
                 </div>

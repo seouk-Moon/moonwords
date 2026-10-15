@@ -1,4 +1,6 @@
 import { useMemo, useState } from "react";
+import { WordSourceLabel } from "./WordSourceLabel";
+import { readWordSources } from "./word-sources";
 import * as XLSX from "xlsx";
 import type { StudyProgress, VocabularyItem } from "../../types";
 import { buildVocabularySets, readStudySettings, toggleStudyMark, wordStudyKey, setVocabularySetSize } from "./study-sets";
@@ -43,6 +45,7 @@ export function Wordbook({ words, progress, onUpdate, onDelete, onStudy, onProgr
       const recent = summarizeRecentResults(recentResults[word.id]);
       return <article className="word-card" key={word.id}>
         <div className="word-main"><span className={`status-dot ${word.status}`} /><div><input className="word-title" value={word.word} onChange={(e) => onUpdate({ ...word, word: e.target.value })} /><input className="word-meaning" value={word.meaning} onChange={(e) => onUpdate({ ...word, meaning: e.target.value })} /></div></div>
+        <WordSourceLabel sources={readWordSources(word.note)} />
         <blockquote>{word.source_sentence}<small>{word.translation}</small></blockquote>
         <textarea value={word.note} onChange={(e) => onUpdate({ ...word, note: e.target.value })} placeholder="암기 팁이나 예문 메모" />
         <footer>
