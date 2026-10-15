@@ -39,7 +39,7 @@ export function Quiz({ doc, words, progress, generationJob, onClose, onGenerate,
   const [vocabFormat, setVocabFormat] = useState<VocabFormat>("choice");
   const [selectedSet, setSelectedSet] = useState("all");
   const [pendingSetStart, setPendingSetStart] = useState(false);
-  const [reviewScope, setReviewScope] = useState<"all" | "incorrect" | "starred" | "new">("all");
+  const [reviewScope, setReviewScope] = useState<"all" | "incorrect" | "starred" | "important" | "new">("all");
   const studySettings = readStudySettings(progress);
   const vocabularySets = buildVocabularySets(words, studySettings.setSize);
   const selectedWordIds = selectedSet === "all" ? words.map((word) => word.id) : vocabularySets[Number(selectedSet)]?.map((word) => word.id) ?? [];
@@ -177,7 +177,7 @@ export function Quiz({ doc, words, progress, generationJob, onClose, onGenerate,
     return false;
   };
   const latestBatchKeys = mode === "comprehension" || mode === "cloze" ? analysis.latest_generated_questions?.[mode] ?? [] : [];
-  const availableQuestions = uniqueQuizQuestions(preparedQuestions, { preserveWordEntries: mode === "meaning" || mode === "flashcard" }).filter((item) => reviewScope === "all" || (reviewScope === "new" ? "prompt" in item && latestBatchKeys.includes(normalizeQuestionText(item.prompt)) : reviewScope === "incorrect" ? isIncorrect(item) : studySettings.starred.includes(quizStudyKey(mode, item))));
+  const availableQuestions = uniqueQuizQuestions(preparedQuestions, { preserveWordEntries: mode === "meaning" || mode === "flashcard" }).filter((item) => reviewScope === "all" || (reviewScope === "new" ? "prompt" in item && latestBatchKeys.includes(normalizeQuestionText(item.prompt)) : reviewScope === "incorrect" ? isIncorrect(item) : (reviewScope === "important" ? studySettings.important : studySettings.starred).includes(quizStudyKey(mode, item))));
   // Marking a question or saving a result must never change a running set.
   if (!started || sessionQuestions.current?.run !== quizRun) sessionQuestions.current = { run: quizRun, questions: availableQuestions };
   const questions = started ? sessionQuestions.current.questions : availableQuestions;
@@ -201,7 +201,7 @@ export function Quiz({ doc, words, progress, generationJob, onClose, onGenerate,
   const nextSetIndex = reviewScope !== "new" && (mode === "meaning" || mode === "cloze" || mode === "flashcard") && /^\d+$/.test(selectedSet)
     ? vocabularySets.findIndex((set, setIndex) => setIndex > Number(selectedSet) && set.some((word) => {
       const key = wordStudyKey(word.id);
-      return reviewScope === "all" || (reviewScope === "starred" ? studySettings.starred.includes(key) : studySettings.incorrect.includes(key) || recentWordResults[word.id]?.at(-1) === false);
+      return reviewScope === "all" || (reviewScope === "important" ? studySettings.important.includes(key) : reviewScope === "starred" ? studySettings.starred.includes(key) : studySettings.incorrect.includes(key) || recentWordResults[word.id]?.at(-1) === false);
     }))
     : -1;
   const startNextSet = () => {
@@ -237,14 +237,14 @@ export function Quiz({ doc, words, progress, generationJob, onClose, onGenerate,
     const scopedIds = review === "new" ? allIds : scope === "incorrect" ? missedComprehensionIds.filter((id) => allIds.includes(id)) : allIds;
     const pool = scopedIds.filter((id) => {
       const key = `comprehension:${doc.analysis.questions[id].question}`;
-      return review === "all" || (review === "new" ? (doc.analysis.latest_generated_questions?.comprehension ?? []).includes(normalizeQuestionText(doc.analysis.questions[id].question)) : review === "starred" ? studySettings.starred.includes(key) : studySettings.incorrect.includes(key) || missedComprehensionIds.includes(id));
+      return review === "all" || (review === "new" ? (doc.analysis.latest_generated_questions?.comprehension ?? []).includes(normalizeQuestionText(doc.analysis.questions[id].question)) : review === "important" ? studySettings.important.includes(key) : review === "starred" ? studySettings.starred.includes(key) : studySettings.incorrect.includes(key) || missedComprehensionIds.includes(id));
     });
     const limit = useAll ? pool.length : Math.min(Math.max(count, 1), pool.length);
     setMode("comprehension"); setActiveComprehensionIds(shuffle(pool).slice(0, limit)); setQuizRun((value) => value + 1); clearRun();
   };
-  const reset = (nextMode = mode) => {
+  const reset = (nextMode = mode, preserveReviewScope = false) => {
     setStarted(false);
-    setReviewScope("all");
+    if (!preserveReviewScope) setReviewScope("all");
     if (nextMode === "comprehension") { prepareComprehension(); return; }
     setMode(nextMode); setQuizRun((value) => value + 1); clearRun();
   };
@@ -501,8 +501,8 @@ export function Quiz({ doc, words, progress, generationJob, onClose, onGenerate,
   const availableOrderingTokens = question?.kind === "ordering" ? question.shuffledTokens.filter((token) => !orderedTokenIds.includes(token.id)) : [];
   const currentFlashcardRetryCount = question?.kind === "flashcard" ? (flashcardRetryByWord[question.wordId] ?? 0) : 0;
   const availableComprehensionCount = comprehensionScope === "incorrect" ? missedComprehensionIds.length : doc.analysis.questions.length;
-  const emptyTitle = reviewScope === "new" ? "선택한 범위에 최근 생성한 문제가 없어요." : reviewScope === "starred" ? "선택한 범위에 별표한 문제가 없어요." : reviewScope === "incorrect" ? "선택한 범위에 남은 오답이 없어요." : mode === "comprehension" && comprehensionScope === "incorrect" ? "현재 저장된 본문 내용 퀴즈 오답이 없어요." : mode === "ordering" ? orderingScope === "difficult" ? "‘어려운 문장’으로 체크한 문장이 없어요." : "출제할 문장을 선택해 주세요." : "단어 퀴즈를 만들 단어가 없어요.";
-  const emptyDescription = reviewScope !== "all" ? reviewScope === "new" ? "문제를 추가 생성한 뒤 최근 생성 문제만 선택해 주세요." : "다른 세트나 전체 문제를 선택하세요. 퀴즈의 ☆ 버튼으로 별표할 수 있어요." : mode === "comprehension" ? "전체 문제에서 새로 풀거나, 틀린 문제가 생기면 오답만 다시 풀 수 있어요." : mode === "ordering" ? orderingScope === "difficult" ? "본문 학습에서 문장에 ‘어려운 문장 체크’를 표시해 주세요." : "직접 선택에서 한 문장 이상 골라 주세요." : "본문에서 단어를 저장한 뒤 다시 시작해 주세요.";
+  const emptyTitle = reviewScope === "new" ? "선택한 범위에 최근 생성한 문제가 없어요." : reviewScope === "important" ? "선택한 범위에 더 중요 표시한 문제가 없어요." : reviewScope === "starred" ? "선택한 범위에 별표한 문제가 없어요." : reviewScope === "incorrect" ? "선택한 범위에 남은 오답이 없어요." : mode === "comprehension" && comprehensionScope === "incorrect" ? "현재 저장된 본문 내용 퀴즈 오답이 없어요." : mode === "ordering" ? orderingScope === "difficult" ? "‘어려운 문장’으로 체크한 문장이 없어요." : "출제할 문장을 선택해 주세요." : "단어 퀴즈를 만들 단어가 없어요.";
+  const emptyDescription = reviewScope !== "all" ? reviewScope === "new" ? "문제를 추가 생성한 뒤 최근 생성 문제만 선택해 주세요." : "다른 세트나 전체 문제를 선택하세요. 퀴즈의 ☆ 별표 또는 ! 더 중요 버튼으로 표시할 수 있어요." : mode === "comprehension" ? "전체 문제에서 새로 풀거나, 틀린 문제가 생기면 오답만 다시 풀 수 있어요." : mode === "ordering" ? orderingScope === "difficult" ? "본문 학습에서 문장에 ‘어려운 문장 체크’를 표시해 주세요." : "직접 선택에서 한 문장 이상 골라 주세요." : "본문에서 단어를 저장한 뒤 다시 시작해 주세요.";
 
   const generationRunning = generationJob?.status === "running";
 
@@ -518,9 +518,9 @@ export function Quiz({ doc, words, progress, generationJob, onClose, onGenerate,
     </section>}
 
     {!started && (mode === "meaning" || mode === "flashcard" || mode === "cloze") && <section className="quiz-settings compact">
-      {(mode === "meaning" || mode === "flashcard") && <div className="quiz-setting-row"><strong>학습 방향</strong><div className="scope-buttons"><button className={vocabDirection === "english-korean" ? "active" : ""} onClick={() => { setVocabDirection("english-korean"); reset(mode); }}>영어 → 한글</button><button className={vocabDirection === "korean-english" ? "active" : ""} onClick={() => { setVocabDirection("korean-english"); reset(mode); }}>한글 → 영어</button></div></div>}
-      {mode === "meaning" && <div className="quiz-setting-row"><strong>답변 방식</strong><div className="scope-buttons"><button className={vocabFormat === "choice" ? "active" : ""} onClick={() => { setVocabFormat("choice"); reset("meaning"); }}>선택형</button><button className={vocabFormat === "written" ? "active" : ""} onClick={() => { setVocabFormat("written"); reset("meaning"); }}>서술형</button></div></div>}
-      <div className="quiz-setting-row"><strong>단어장 세트</strong><label><select aria-label="출제할 단어장 세트" value={selectedSet} onChange={(event) => { setSelectedSet(event.target.value); reset(mode); }}><option value="all">전체 세트 · {words.length}개</option>{vocabularySets.map((set, setIndex) => <option key={setIndex} value={setIndex}>세트 {setIndex + 1} · {set.length}개</option>)}{mode === "cloze" && <option value="generated">AI 추가 문제만</option>}</select></label><button className="reshuffle-button" onClick={() => reset(mode)}>↻ 다시 섞기</button></div>
+      {(mode === "meaning" || mode === "flashcard") && <div className="quiz-setting-row"><strong>학습 방향</strong><div className="scope-buttons"><button className={vocabDirection === "english-korean" ? "active" : ""} onClick={() => { setVocabDirection("english-korean"); reset(mode, true); }}>영어 → 한글</button><button className={vocabDirection === "korean-english" ? "active" : ""} onClick={() => { setVocabDirection("korean-english"); reset(mode, true); }}>한글 → 영어</button></div></div>}
+      {mode === "meaning" && <div className="quiz-setting-row"><strong>답변 방식</strong><div className="scope-buttons"><button className={vocabFormat === "choice" ? "active" : ""} onClick={() => { setVocabFormat("choice"); reset("meaning", true); }}>선택형</button><button className={vocabFormat === "written" ? "active" : ""} onClick={() => { setVocabFormat("written"); reset("meaning", true); }}>서술형</button></div></div>}
+      <div className="quiz-setting-row"><strong>단어장 세트</strong><label><select aria-label="출제할 단어장 세트" value={selectedSet} onChange={(event) => { setSelectedSet(event.target.value); reset(mode, true); }}><option value="all">전체 세트 · {words.length}개</option>{vocabularySets.map((set, setIndex) => <option key={setIndex} value={setIndex}>세트 {setIndex + 1} · {set.length}개</option>)}{mode === "cloze" && <option value="generated">AI 추가 문제만</option>}</select></label><button className="reshuffle-button" onClick={() => reset(mode, true)}>↻ 다시 섞기</button></div>
       <p className="scope-summary">단어장에서 정한 {studySettings.setSize}개 단위 세트를 그대로 사용합니다.{mode === "cloze" && selectedSet === "all" ? " 전체 세트에는 AI 추가 문제도 포함됩니다." : ""}</p>
       {mode === "cloze" && <div className="quiz-setting-row generation-row"><strong>문제 추가</strong><label className="number-picker"><input type="number" min="1" max={MAX_CLOZE_GENERATION_COUNT} value={generationCount} onChange={(event) => setGenerationCount(Math.max(1, Math.min(MAX_CLOZE_GENERATION_COUNT, Number(event.target.value) || 1)))} />개</label><button className="generate-button" disabled={generationRunning} onClick={() => onGenerate("cloze", generationCount)}>{generationRunning ? "생성 진행 중…" : "＋ 빈칸 문제 추가 생성"}</button><small>본문의 문장과 핵심 어휘로 새 문제를 만듭니다.</small></div>}
     </section>}
@@ -532,7 +532,7 @@ export function Quiz({ doc, words, progress, generationJob, onClose, onGenerate,
       {orderingScope === "selected" && <div className="sentence-picker"><header><span>원하는 문장을 골라 주세요.</span><div><button onClick={() => { setSelectedSentenceIds(doc.analysis.sentences.map((sentence) => sentence.id)); reset("ordering"); }}>전체 선택</button><button onClick={() => { setSelectedSentenceIds([]); reset("ordering"); }}>선택 해제</button></div></header>{doc.analysis.sentences.map((sentence) => <label key={sentence.id}><input type="checkbox" checked={selectedSentenceIds.includes(sentence.id)} onChange={() => updateSentenceSelection(sentence.id)} /><span><b>{sentence.id}</b>{sentence.english}</span></label>)}</div>}
     </section>}
 
-    {!started && <section className="quiz-settings compact"><div className="quiz-setting-row"><strong>복습 범위</strong><div className="scope-buttons">{([ ["all", "전체 문제"], ["incorrect", "오답만 풀기"], ["starred", "별표한 문제만"], ...((mode === "comprehension" || mode === "cloze") ? [["new", "최근 생성 문제만"] as const] : []) ] as const).map(([scope, label]) => <button key={scope} className={reviewScope === scope ? "active" : ""} onClick={() => { setReviewScope(scope); if (mode === "comprehension") prepareComprehension(scope === "new" ? "all" : comprehensionScope, comprehensionUseAll, comprehensionCount, scope); else { if (scope === "new") setSelectedSet("generated"); clearRun(); } }}>{label}</button>)}</div></div><p className="scope-summary">{mode === "meaning" || mode === "flashcard" ? `선택한 단어 ${selectedWordIds.length}개 · 출제 ${questions.length}문제${reviewScope !== "all" ? " (출제 범위 필터 적용)" : ""}` : `선택한 세트·출제 범위 안에서 ${questions.length}문제를 풀 수 있어요.`}</p></section>}
+    {!started && <section className="quiz-settings compact"><div className="quiz-setting-row"><strong>복습 범위</strong><div className="scope-buttons">{([ ["all", "전체 문제"], ["incorrect", "오답만 풀기"], ["starred", "별표만 풀기"], ["important", "더 중요만 풀기"], ...((mode === "comprehension" || mode === "cloze") ? [["new", "최근 생성 문제만"] as const] : []) ] as const).map(([scope, label]) => <button key={scope} className={reviewScope === scope ? "active" : ""} onClick={() => { setReviewScope(scope); if (mode === "comprehension") prepareComprehension(scope === "new" ? "all" : comprehensionScope, comprehensionUseAll, comprehensionCount, scope); else { if (scope === "new") setSelectedSet("generated"); clearRun(); } }}>{label}</button>)}</div></div><p className="scope-summary">{mode === "meaning" || mode === "flashcard" ? `선택한 단어 ${selectedWordIds.length}개 · 출제 ${questions.length}문제${reviewScope !== "all" ? " (출제 범위 필터 적용)" : ""}` : `선택한 세트·출제 범위 안에서 ${questions.length}문제를 풀 수 있어요.`}</p></section>}
 
     {!started && <section className="quiz-start-panel">
       <div><span>준비가 되면 시작하세요</span><b>설정을 확인한 뒤 문제를 표시합니다.</b></div>
