@@ -26,7 +26,7 @@ const readingQuestionSchema = {
 
 const analysisSchema = {
   type: "object",
-  required: ["level", "topic", "summary", "structure", "sections", "sentences", "questions"],
+  required: ["level", "topic", "summary", "structure", "sections", "sentences", "questions", "source_exam"],
   properties: {
     level: { type: "string", enum: cefrLevels },
     topic: { type: "string" },
@@ -75,6 +75,14 @@ const analysisSchema = {
     questions: {
       type: "array",
       items: readingQuestionSchema,
+    },
+    source_exam: {
+      type: "object", required: ["kind", "questionType", "rawText", "questions"],
+      properties: {
+        kind: {type:"string",enum:["exam","reading"]},
+        questionType: {type:"string"}, rawText: {type:"string"},
+        questions: {type:"array",items:{type:"object",required:["label","questionType","prompt","options"],properties:{label:{type:"string"},questionType:{type:"string"},prompt:{type:"string"},options:{type:"array",items:{type:"string"}}}}}
+      }
     },
   },
 };
@@ -130,7 +138,7 @@ const retryAfterMilliseconds = (response: Response) => {
   return Number.isNaN(date) ? 0 : Math.max(0, date - Date.now());
 };
 
-async function callGemini(prompt: string, schema: Record<string, unknown>) {
+async function callGemini(prompt: string, schema: Record<string, unknown>, imageDataUrl?: string) {
   const apiKey = Deno.env.get("GEMINI_API_KEY");
   if (!apiKey) throw new Error("GEMINI_API_KEY가 설정되지 않았습니다.");
 
@@ -139,7 +147,7 @@ async function callGemini(prompt: string, schema: Record<string, unknown>) {
     systemInstruction: {
       parts: [{ text: "You are an expert English reading teacher for Korean learners. Return only valid JSON matching the schema. Preserve every English sentence exactly except harmless whitespace. Korean explanations must be natural, accurate, and concise." }],
     },
-    contents: [{ role: "user", parts: [{ text: prompt }] }],
+    contents: [{ role: "user", parts: [{ text: prompt }, ...(imageDataUrl ? [{inlineData:{mimeType:imageDataUrl.slice(5,imageDataUrl.indexOf(";")),data:imageDataUrl.slice(imageDataUrl.indexOf(",")+1)}}] : [])] }],
     generationConfig: {
       temperature: 0.25,
       responseMimeType: "application/json",
@@ -481,13 +489,31 @@ Deno.serve(async (request: Request) => {
     const validationError = validateSourceText(body.text);
     if (validationError) return Response.json({ error: validationError }, { status: 400, headers: cors });
 
+    const imageDataUrl = body.imageDataUrl;
+    if (imageDataUrl !== undefined && (typeof imageDataUrl !== "string" || imageDataUrl.length > 12_000_000 || !/^data:image\/(jpeg|png|webp);base64,[A-Za-z0-9+/=]+$/.test(imageDataUrl))) {
+      return Response.json({error:"사진을 읽지 못했습니다. JPG·PNG 사진을 다시 선택해 주세요."},{status:400,headers:cors});
+    }
+    const compact = body.compactReading === true;
     const questionCount = requestedQuestionCount(body.questionCount);
     const chapterHeadings = detectChapterHeadings(body.text);
     const chapterHint = chapterHeadings.length
       ? `\n원문에서 감지된 제목 후보입니다. 실제 챕터/섹션 제목이면 반드시 이 제목과 경계를 우선 사용하세요. 임의로 다른 제목을 만들지 마세요.\n${chapterHeadings.map((heading, index) => `${index + 1}. ${heading}`).join("\n")}\n`
       : "";
-    const prompt = `제목: ${body.title || "제목 없음"}\n\n아래 영어 본문을 한국 학습자용 학습 데이터로 분석하세요. 번역과 어휘 분석을 반드시 같은 작업에서 함께 수행하세요.${chapterHint}\n- level은 반드시 CEFR A1, A2, B1, B2, C1, C2 중 하나만 사용합니다.\n- 원문 전체를 누락 없이 자연스러운 문장 단위로 분리하고 1부터 연속 ID를 부여합니다.\n- 원문에 명시적인 Chapter/Part/Section/Unit/번호형 제목이 있으면 그 제목 줄 자체는 문장으로 넣지 말고, 정확한 원문 제목을 section.label로 사용하며 해당 제목부터 다음 제목 전까지를 같은 section으로 묶습니다.\n- 명시적 챕터 제목이 없을 때만 의미 흐름을 기준으로 3~8개 section으로 나눕니다. 이 경우 section.label과 section.role은 한국어로 작성합니다.\n- english에는 원문 문장을 보존하고 korean에는 그 문장만 자연스럽게 번역합니다.\n- 각 문장을 번역할 때 한국 학습자가 선택할 가능성이 높은 어려운 단어, 내용어, 구동사와 숙어를 보통 8~10개 keywords로 함께 만듭니다. 짧은 문장은 필요한 만큼만 만듭니다.\n- keyword.word는 원문에 실제 나온 형태와 철자를 그대로 쓰고, meaning은 해당 문장에서 사용된 뜻만 간결한 한국어로 씁니다. 관사, 대명사, be/do/have 같은 매우 기초적인 기능어는 제외합니다.\n- topic, summary, structure는 반드시 자연스러운 한국어로 작성합니다. 명시적 원문 챕터 제목을 제외한 section.label과 모든 section.role도 한국어로 작성합니다.\n- 내용 이해 객관식 문제를 ${questionCount}개 만들고 options는 4개, answer는 0부터 시작하는 정답 index입니다.\n\n본문:\n${body.text}`;
-    const analysis = normalizeGeneratedAnalysis(await callGemini(prompt, analysisSchema));
+    const prompt = `제목: ${body.title || "제목 없음"}\n\n아래 영어 본문을 한국 학습자용 학습 데이터로 분석하세요. 번역과 어휘 분석을 반드시 같은 작업에서 함께 수행하세요.${chapterHint}\n- level은 반드시 CEFR A1, A2, B1, B2, C1, C2 중 하나만 사용합니다.\n- 원문 전체를 누락 없이 자연스러운 문장 단위로 분리하고 1부터 연속 ID를 부여합니다.\n- 원문에 명시적인 Chapter/Part/Section/Unit/번호형 제목이 있으면 그 제목 줄 자체는 문장으로 넣지 말고, 정확한 원문 제목을 section.label로 사용하며 해당 제목부터 다음 제목 전까지를 같은 section으로 묶습니다.\n- 모의고사/수능처럼 하나의 짧은 지문이면 section은 1개, 모든 sentence.paragraph는 1로 합니다. 긴 교재의 실제 챕터 경계만 구분하고 짧은 글을 억지로 여러 구간으로 나누지 마세요.\n- english에는 원문 문장을 보존하고 korean에는 그 문장만 자연스럽게 번역합니다.\n- 각 문장을 번역할 때 한국 학습자가 선택할 가능성이 높은 어려운 단어, 내용어, 구동사와 숙어를 보통 8~10개 keywords로 함께 만듭니다. 짧은 문장은 필요한 만큼만 만듭니다.\n- keyword.word는 원문에 실제 나온 형태와 철자를 그대로 쓰고, meaning은 해당 문장에서 사용된 뜻만 간결한 한국어로 씁니다. 관사, 대명사, be/do/have 같은 매우 기초적인 기능어는 제외합니다.\n- topic, summary, structure는 반드시 자연스러운 한국어로 작성합니다. 명시적 원문 챕터 제목을 제외한 section.label과 모든 section.role도 한국어로 작성합니다.\n- 내용 이해 객관식 문제를 ${questionCount}개 만들고 options는 4개, answer는 0부터 시작하는 정답 index입니다.\n\n본문:\n${body.text}`;
+    const sourceInstructions = `
+사진이 있으면 첨부 사진을 직접 읽고 OCR 본문의 한글·기호 인식 누락을 보완하세요. 사진과 OCR 본문의 글자만 근거로 하며 보이지 않는 문제/보기를 창작하지 마세요.
+- source_exam.rawText에는 원본 지문, 한글 질문/지시문, 모든 보기(보기 안의 한글·영어), 문제 번호, [보기], (A)(B)(C), ①~⑤, 밑줄/빈칸을 읽기 순서대로 최대한 정확히 모두 기록하세요. 영어만 남기거나 선택지를 삭제하면 안 됩니다. 판독할 수 없는 글자는 [판독 불가]라고 명시하고 추측하지 마세요.
+- 사진이 없으면 source_exam.rawText는 입력 원문 전체를 그대로 복사하세요.
+- 원본 문제가 있으면 source_exam.kind=exam. 각 원본 문제를 source_exam.questions에 분리하고 label에는 원본 번호, prompt에는 한글 질문·지시문 전체, options에는 모든 보기를 원래 순서·번호 그대로 보존하세요. 원본 보기가 5개면 반드시 5개를 기록합니다. 정답을 추정해 원문을 바꾸지 마세요. 원본 문제가 없으면 kind=reading, questions=[]입니다.
+- questionType은 목적, 심경·분위기, 주장, 함축 의미, 요지, 주제, 제목, 도표, 내용 일치, 내용 불일치, 어법, 어휘, 빈칸 추론, 글의 순서, 문장 삽입, 무관한 문장, 요약문 완성, 장문 독해, 기타 중 가장 적합한 유형으로 분류하세요. 유형이 다르면 원본 각 문제마다 분류하세요.
+- sentences에는 학습할 영어 지문의 문장을 보존하되 한국어 질문을 영어 지문으로 번역해 넣지 마세요. 질문/보기는 source_exam에서 따로 보존합니다. 순서/삽입 유형의 (A)(B)(C), 빈칸, 밑줄, 지문 순서를 임의로 정답 형태로 재배열하거나 채우지 마세요.
+- analysis.questions는 원본 문제 전사와 별개인 새 학습용 4지선다입니다. 원본 문제는 source_exam에서 보존하며 이 필드로 대체하지 않습니다.
+${compact ? '- 이번 촬영 본문은 기본 한 구간으로 유지합니다. sections=[{id:1,label:"본문",role:"전체 본문"}], 모든 문장의 paragraph=1로 합니다.' : ''}`;
+    const analysis = normalizeGeneratedAnalysis(await callGemini(prompt + sourceInstructions, analysisSchema, imageDataUrl));
+    if (compact || (analysis.source_exam as {kind?:string}|undefined)?.kind === 'exam') {
+      analysis.sections = [{id:1,label:"본문",role:"원본 지문"}];
+      analysis.sentences = analysis.sentences.map(sentence => ({...sentence,paragraph:1}));
+    }
     return Response.json({ analysis }, { headers: { ...cors, "Content-Type": "application/json" } });
   } catch (error) {
     const status = error instanceof GeminiUpstreamError ? error.status : 500;

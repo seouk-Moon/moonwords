@@ -39,6 +39,7 @@ export async function recognizePhoto(file: File, options: {
     if (!context) throw new Error('사진을 처리하지 못했어요. 다른 브라우저로 다시 시도해 주세요.');
     context.fillStyle = '#fff'; context.fillRect(0, 0, canvas.width, canvas.height);
     context.drawImage(image, image.naturalWidth * crop.x, image.naturalHeight * crop.y, width, height, 0, 0, canvas.width, canvas.height);
+    const imageDataUrl = canvas.toDataURL("image/jpeg", .92);
     const pixels = context.getImageData(0, 0, canvas.width, canvas.height);
     for (let i = 0; i < pixels.data.length; i += 4) {
       const gray = pixels.data[i] * .299 + pixels.data[i + 1] * .587 + pixels.data[i + 2] * .114;
@@ -46,13 +47,13 @@ export async function recognizePhoto(file: File, options: {
       pixels.data[i] = pixels.data[i + 1] = pixels.data[i + 2] = value;
     }
     context.putImageData(pixels, 0, 0);
-    options.onProgress?.('영어 글자 인식을 준비하는 중… 처음에는 조금 걸릴 수 있어요.');
+    options.onProgress?.('한국어·영어 인식을 준비하는 중… 처음에는 조금 걸릴 수 있어요.');
     const tesseract = await abortable(import('tesseract.js'));
     checkCancelled();
-    const workerCreation = tesseract.createWorker('eng', tesseract.OEM.LSTM_ONLY, {
+    const workerCreation = tesseract.createWorker(['eng', 'kor'], tesseract.OEM.LSTM_ONLY, {
       logger: (message: { status?: string; progress?: number }) => {
         if (options.signal?.aborted) return;
-        if (message.status === 'recognizing text') options.onProgress?.(`사진 속 영어를 읽는 중… ${Math.round((message.progress ?? 0) * 100)}%`);
+        if (message.status === 'recognizing text') options.onProgress?.(`사진 속 본문·한글 문제를 읽는 중… ${Math.round((message.progress ?? 0) * 100)}%`);
       },
     });
     void workerCreation.then(created => {
@@ -60,13 +61,13 @@ export async function recognizePhoto(file: File, options: {
     }, () => {});
     worker = await abortable(workerCreation);
     checkCancelled();
-    await abortable(worker.setParameters({ tessedit_pageseg_mode: tesseract.PSM.AUTO }));
+    await abortable(worker.setParameters({ tessedit_pageseg_mode: tesseract.PSM.SINGLE_BLOCK }));
     const result = await abortable(worker.recognize(canvas));
     checkCancelled();
     const text = result.data.text.replace(/\u0000/g, '').replace(/\n{3,}/g, '\n\n').trim();
-    if (text.length < 40) throw new Error('영어 본문을 충분히 찾지 못했어요. 밝은 곳에서 본문만 크게 찍거나, 영역을 다시 선택해 주세요.');
+    if (text.length < 40) throw new Error('본문을 충분히 찾지 못했어요. 밝은 곳에서 본문만 크게 찍거나, 영역을 다시 선택해 주세요.');
     if (text.length > 120_000) throw new Error('본문이 너무 길어요. 한 지문씩 나눠서 촬영해 주세요.');
-    return { text, confidence: result.data.confidence };
+    return { text, confidence: result.data.confidence, imageDataUrl };
   } finally {
     options.signal?.removeEventListener('abort', stop);
     if (worker) await worker.terminate().catch(() => {});

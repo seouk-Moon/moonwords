@@ -20,7 +20,7 @@ import { questionWordSources } from "../vocabulary/word-sources";
 import { QuizResult } from "./QuizResult";
 import { OrderingContextExcerpt } from "./OrderingContextExcerpt";
 
-export function Quiz({ doc, words, progress, generationJob, onClose, onGenerate, onProgress, onResult, onQuestionAnswered, onQuizComplete }: { doc: StudyDocument; words: VocabularyItem[]; progress: StudyProgress; generationJob: QuizGenerationJob | null; onClose: () => void; onGenerate: (type: QuizGenerationType, count: number) => void; onProgress: (next: StudyProgress) => void; onResult: (id: string | undefined, correct: boolean, options?: { quizKey?: string; sourceQuestionId?: number }) => void; onQuestionAnswered: (mode: QuizMode, correct: boolean, options?: { wordId?: string; sentenceId?: number }) => void; onQuizComplete: (mode: QuizMode, score: number, questionCount: number) => void }) {
+export function Quiz({ doc, words, progress, generationJob, onClose, onGenerate, onProgress, onResult, onQuestionAnswered, onQuizComplete }: { doc: StudyDocument; words: VocabularyItem[]; progress: StudyProgress; generationJob: QuizGenerationJob | null; onClose: () => void; onGenerate: (type: QuizGenerationType, count: number) => void; onProgress: (next: StudyProgress) => void; onResult: (id: string | undefined, correct: boolean, options?: { quizKey?: string; sourceQuestionId?: number }) => void; onQuestionAnswered: (mode: QuizMode, correct: boolean, options?: { wordId?: string; sentenceId?: number; questionKey?: string }) => void; onQuizComplete: (mode: QuizMode, score: number, questionCount: number) => void }) {
   const [mode, setMode] = useState<QuizMode>(doc.analysis.collection ? "meaning" : "comprehension");
   const writtenInput = useRef<HTMLInputElement>(null);
   const [index, setIndex] = useState(0);
@@ -296,7 +296,7 @@ export function Quiz({ doc, words, progress, generationJob, onClose, onGenerate,
     });
     if (question.sourceQuestionId !== undefined) saveMissedComprehensionIds(question.sourceQuestionId, correct);
     onResult(question.wordId, correct, { quizKey: quizStudyKey(mode, question), sourceQuestionId: question.sourceQuestionId });
-    onQuestionAnswered(mode, correct, { wordId: question.wordId });
+    onQuestionAnswered(mode, correct, { wordId: question.wordId, questionKey: quizStudyKey(mode,question) });
   };
   const gradeWritten = (correct: boolean) => {
     const question = questions[index];
@@ -315,13 +315,13 @@ export function Quiz({ doc, words, progress, generationJob, onClose, onGenerate,
       testedPart: question.testedPart,
     });
     onResult(question.wordId, correct, { quizKey: quizStudyKey(mode, question) });
-    onQuestionAnswered(mode, correct, { wordId: question.wordId });
+    onQuestionAnswered(mode, correct, { wordId: question.wordId, questionKey: quizStudyKey(mode,question) });
   };
   const gradeFlashcard = (correct: boolean) => {
     const question = flashcardQueue[0];
     if (!question || !flashcardFlipped) return;
     onResult(question.wordId, correct, { quizKey: quizStudyKey(mode, question) });
-    onQuestionAnswered(mode, correct, { wordId: question.wordId });
+    onQuestionAnswered(mode, correct, { wordId: question.wordId, questionKey: quizStudyKey(mode,question) });
     setAnsweredCount((value) => value + 1);
     // Always start the next/retried card from the front face.
     // Incrementing the turn also remounts the card so a trailing click after a swipe
@@ -390,7 +390,7 @@ export function Quiz({ doc, words, progress, generationJob, onClose, onGenerate,
     setOrderingCorrect(correct); setOrderingSubmitted(true);
     setAnsweredCount((value) => value + 1);
     onResult(undefined, correct, { quizKey: quizStudyKey(mode, question) });
-    onQuestionAnswered(mode, correct, { sentenceId: question.sentenceId });
+    onQuestionAnswered(mode, correct, { sentenceId: question.sentenceId, questionKey: quizStudyKey(mode,question) });
     if (correct) setScore((value) => value + 1);
     else rememberMistake({
       id: `ordering:${quizRun}:${index}:${question.sentenceId}`,

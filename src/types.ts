@@ -26,7 +26,13 @@ export type ReadingQuestion = {
   explanation: string;
 };
 
+export type SourceExam = {
+  kind: "exam" | "reading"; questionType: string; rawText: string; ocrText?: string;
+  questions: { label: string; questionType: string; prompt: string; options: string[] }[];
+};
+
 export type DocumentAnalysis = {
+  source_exam?: SourceExam;
   collection?: { sourceDocumentIds: string[]; scope: "starred" | "important" | "all"; wordCount: number };
   level: string;
   topic: string;

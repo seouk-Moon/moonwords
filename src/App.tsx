@@ -208,6 +208,10 @@ export default function App({ supabaseUrl, supabasePublishableKey }: AppProps = 
         <UploadPanel
           key={pdfTransfer ? `pdf-${pdfTransfer.createdAt}` : "manual-upload"}
           userId={workspace.session.user.id}
+          documents={workspace.documents}
+          learningEvents={workspace.learningEvents}
+          quizAttempts={workspace.quizAttempts}
+          onPracticeAnswer={workspace.recordGenerationPractice}
           folderId={uploadFolderId}
           initialMode={uploadMode}
           initialTitle={pdfTransfer?.title}

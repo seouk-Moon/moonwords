@@ -134,7 +134,7 @@ export function LibraryPage({
           <h1>내 학습 보관함</h1>
           <p>본문과 통합단어장을 나눠 확인하고, 폴더에 함께 정리하세요.</p>
         </div>
-        <div className="collection-library-actions"><button className="outline-button" disabled={!documents.length} onClick={() => setCreatingCollection(true)}>☆ 통합 단어장 만들기</button>{onPhotoUpload && <button className="outline-button" onClick={() => onPhotoUpload(defaultUploadFolder)}>사진으로 추가</button>}<button className="primary-button new-reading-button" onClick={() => onUpload(defaultUploadFolder)}>＋ 새 본문</button></div>
+        <div className="collection-library-actions"><button className="outline-button" disabled={!documents.length} onClick={() => setCreatingCollection(true)}>☆ 통합 단어장 만들기</button>{onPhotoUpload && <button className="outline-button" onClick={() => onPhotoUpload(defaultUploadFolder)}>본문 추가</button>}<button className="primary-button new-reading-button" onClick={() => onUpload(defaultUploadFolder)}>＋ 새 본문</button></div>
       </section>
 
 

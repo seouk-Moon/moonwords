@@ -140,13 +140,14 @@ export function useLearningAnalytics({
     }
   }, [current?.id, session]);
 
-  const recordQuizAnswer = useCallback((mode: QuizMode, correct: boolean, options?: { wordId?: string; sentenceId?: number }) => {
+  const recordQuizAnswer = useCallback((mode: QuizMode, correct: boolean, options?: { wordId?: string; sentenceId?: number; questionKey?: string }) => {
     recordEvent({
       eventType: "quiz_answer",
       quizMode: mode,
       correct,
       wordId: options?.wordId,
       sentenceId: options?.sentenceId,
+      metadata: options?.questionKey ? {questionKey:options.questionKey} : {},
       xp: quizXp(correct),
     });
   }, [recordEvent]);
@@ -278,6 +279,7 @@ export function useLearningAnalytics({
     events,
     sessions,
     quizAttempts,
+    recordEvent,
     snapshot,
     analyticsReady,
     dailyGoals,

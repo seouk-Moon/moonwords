@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   extractDocumentFromFile,
   normalizePastedText,
@@ -8,8 +8,11 @@ import { getFunctionErrorMessage } from "../../lib/function-error";
 import { uid } from "../../lib/app-utils";
 import { normalizeNewDocumentAnalysis } from "../../lib/analysis-normalization";
 import { supabase } from "../../lib/supabase";
-import type { DocumentAnalysis, StudyDocument } from "../../types";
+import type { DocumentAnalysis, StudyDocument, VocabularyItem, LearningEvent, QuizAttempt } from "../../types";
 import { PhotoTextCapture } from "./PhotoTextCapture";
+import { preserveExamSource } from "./exam-source";
+import { buildGenerationPractice, type PracticeQuestion } from "./generation-practice";
+import { GenerationPractice } from "./GenerationPractice";
 
 const normalizeForMark = (value: string) => value
   .toLowerCase()
@@ -46,6 +49,8 @@ type BlankIssue = {
 type PreparedDocument = {
   text: string;
   markedFragments: string[];
+  imageDataUrl?: string;
+  compact?: boolean;
 };
 
 const findBlankIssues = (text: string): BlankIssue[] => {
@@ -88,6 +93,7 @@ const describeExtractionProgress = (progress: DocumentExtractionProgress) => {
 
 export function UploadPanel({
   userId,
+  documents = [], learningEvents = [], quizAttempts = [], onPracticeAnswer = () => {},
   folderId = null,
   initialMode = "file",
   initialTitle = "",
@@ -97,6 +103,7 @@ export function UploadPanel({
   onCancel,
 }: {
   userId: string;
+  documents?: StudyDocument[]; learningEvents?: LearningEvent[]; quizAttempts?: QuizAttempt[]; onPracticeAnswer?: (q:PracticeQuestion, correct:boolean)=>void;
   folderId?: string | null;
   initialMode?: "file" | "photo";
   initialTitle?: string;
@@ -107,7 +114,18 @@ export function UploadPanel({
 }) {
   const [inputMode, setInputMode] = useState<"file" | "text" | "photo">(initialText ? "text" : initialMode);
   const [photoBusy, setPhotoBusy] = useState(false);
-  const [fromPhoto, setFromPhoto] = useState(false);
+  const [completedDocument,setCompletedDocument] = useState<StudyDocument|null>(null);
+  const [showPractice,setShowPractice] = useState(false);
+  const [practiceWords,setPracticeWords] = useState<VocabularyItem[]>([]);
+  const [practiceLoading,setPracticeLoading] = useState(false);
+  const delivered = useRef(false);const mounted = useRef(true);
+  useEffect(()=>{mounted.current=true;return()=>{mounted.current=false;};},[]);
+  const recentIds=documents.filter(d=>d.last_studied_at&&!d.analysis.collection&&d.source_type!=="vocabulary_collection").sort((a,b)=>Date.parse(b.last_studied_at!)-Date.parse(a.last_studied_at!)).slice(0,8).map(d=>d.id).join(',');
+  useEffect(()=>{let active=true;setPracticeWords([]);setPracticeLoading(Boolean(supabase&&recentIds));if(supabase&&recentIds)void supabase.from('vocabulary').select('*').in('document_id',recentIds.split(',')).limit(2000).then(result=>{if(active){if(!result.error)setPracticeWords(result.data as VocabularyItem[]);setPracticeLoading(false);}});return()=>{active=false;};},[userId,recentIds]);
+  const practiceQuestions=useMemo(()=>buildGenerationPractice(documents,practiceWords,learningEvents,quizAttempts),[documents,practiceWords,learningEvents,quizAttempts]);
+  const beginPractice=()=>{delivered.current=false;setCompletedDocument(null);setShowPractice(true);};
+  const continueToDocument=()=>{if(!completedDocument||delivered.current||!mounted.current)return;delivered.current=true;onCreated(completedDocument);};
+
   const [title, setTitle] = useState(initialTitle);
   const [text, setText] = useState(initialText);
   const [file, setFile] = useState<File | null>(null);
@@ -118,12 +136,12 @@ export function UploadPanel({
   const [blankIssues, setBlankIssues] = useState<BlankIssue[]>([]);
   const [blankAnswers, setBlankAnswers] = useState<Record<number, { value: string; keepBlank: boolean }>>({});
 
-  const analyzeWithRetry = async (documentTitle: string, originalText: string) => {
+  const analyzeWithRetry = async (documentTitle: string, originalText: string, source: PreparedDocument) => {
     if (!supabase) throw new Error("Supabase 연결이 필요합니다.");
     let lastMessage = "AI 처리 요청에 실패했습니다.";
     for (let attempt = 0; attempt < 2; attempt += 1) {
       const response = await supabase.functions.invoke("process-document", {
-        body: { action: "analyze", title: documentTitle, text: originalText, questionCount: 10 },
+        body: { action: "analyze", title: documentTitle, text: originalText, questionCount: 10, imageDataUrl: source.imageDataUrl, compactReading: source.compact === true },
       });
       if (!response.error) return response.data;
       lastMessage = await getFunctionErrorMessage(response.error);
@@ -143,7 +161,7 @@ export function UploadPanel({
       const client = supabase;
       if (!client) throw new Error("Supabase 연결이 필요합니다.");
       const originalText = source.text;
-      const sourceFile = inputMode === "file" ? file : null;
+      const sourceFile = !source.imageDataUrl && inputMode === "file" ? file : null;
       const documentId = uid();
       let sourcePath: string | null = null;
 
@@ -157,18 +175,18 @@ export function UploadPanel({
       }
 
       setStatus("번역과 학습 문제를 만드는 중…");
-      const responseData = await analyzeWithRetry(title || sourceFile?.name || "새 영어 본문", originalText);
+      const responseData = await analyzeWithRetry(title || sourceFile?.name || "새 영어 본문", originalText, source);
       const normalizedAnalysis = normalizeNewDocumentAnalysis(responseData.analysis as DocumentAnalysis);
-      const analysis = applySourceMarks(normalizedAnalysis, source.markedFragments);
+      const analysis = preserveExamSource(applySourceMarks(normalizedAnalysis, source.markedFragments), originalText, source.compact, Boolean(source.imageDataUrl));
       const payload = {
         id: documentId,
         user_id: userId,
         ...(folderId ? { folder_id: folderId } : {}),
-        title: title.trim() || sourceFile?.name.replace(/\.[^.]+$/, "") || "새 영어 본문",
+        title: title.trim() || sourceFile?.name.replace(/\.[^.]+$/, "") || (analysis.source_exam?.questions[0]?.label ? `모의고사 ${analysis.source_exam.questions[0].label}번 · ${analysis.source_exam.questionType}` : analysis.topic || "새 영어 본문"),
         source_name: sourceFile?.name ?? null,
         source_type: sourceFile?.name.split(".").pop()?.toLowerCase() ?? "text",
         source_file_path: sourcePath,
-        original_text: originalText,
+        original_text: analysis.source_exam?.rawText || originalText,
         analysis,
       };
       const inserted = await client.from("documents").insert(payload).select().single();
@@ -178,7 +196,7 @@ export function UploadPanel({
         }
         throw inserted.error;
       }
-      onCreated(inserted.data as StudyDocument);
+      if (mounted.current) setCompletedDocument(inserted.data as StudyDocument);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "본문을 처리하지 못했습니다.");
     } finally {
@@ -188,6 +206,7 @@ export function UploadPanel({
   };
 
   const create = async () => {
+    beginPractice();
     setBusy(true);
     setError("");
     try {
@@ -198,6 +217,7 @@ export function UploadPanel({
       const source: PreparedDocument = { text: extracted.text, markedFragments: extracted.markedFragments };
       const issues = findBlankIssues(source.text);
       if (issues.length) {
+        setShowPractice(false);
         setPrepared(source);
         setBlankIssues(issues);
         setBlankAnswers(Object.fromEntries(issues.map((issue) => [issue.id, { value: "", keepBlank: false }])));
@@ -227,6 +247,7 @@ export function UploadPanel({
     const nextText = applyBlankAnswers(prepared.text, blankIssues, blankAnswers);
     setPrepared(null);
     setBlankIssues([]);
+    beginPractice();
     await finalizeDocument({ ...prepared, text: nextText });
   };
 
@@ -272,6 +293,7 @@ export function UploadPanel({
 
   return (
     <section className="upload-card">
+      {showPractice && <GenerationPractice questions={practiceLoading?[]:practiceQuestions} ready={Boolean(completedDocument)} status={status || (photoBusy?"한국어·영어 본문과 문제를 읽고 있어요…":"본문을 준비하는 중…")} error={error} onContinue={continueToDocument} onDismissError={()=>{setShowPractice(false);setError("");}} onAnswer={onPracticeAnswer}/>}
       <button className="back-button" onClick={onCancel}>← 내 본문</button>
       <span className="section-kicker">NEW READING</span>
       <h1>새 본문을 학습지로 만들기</h1>
@@ -283,14 +305,14 @@ export function UploadPanel({
           <a href="./pdf-extractor.html">추출기 다시 열기</a>
         </div>
       )}
-      <div className="segmented"><button disabled={busy || photoBusy} className={inputMode === "file" ? "active" : ""} onClick={() => setInputMode("file")}>파일 올리기</button><button disabled={busy || photoBusy} className={inputMode === "photo" ? "active" : ""} onClick={() => setInputMode("photo")}>사진으로 추가</button><button disabled={busy || photoBusy} className={inputMode === "text" ? "active" : ""} onClick={() => setInputMode("text")}>텍스트 붙여넣기</button></div>
+      <div className="segmented"><button disabled={busy || photoBusy} className={inputMode === "file" ? "active" : ""} onClick={() => setInputMode("file")}>파일 올리기</button><button disabled={busy || photoBusy} className={inputMode === "photo" ? "active" : ""} onClick={() => setInputMode("photo")}>본문 추가</button><button disabled={busy || photoBusy} className={inputMode === "text" ? "active" : ""} onClick={() => setInputMode("text")}>텍스트 붙여넣기</button></div>
       <label className="field">제목 (선택)<input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="예: The Future of Space Travel" /></label>
-      {inputMode === "photo" ? <PhotoTextCapture onBusyChange={setPhotoBusy} onRecognized={recognizedText => {
-        setText(recognizedText); setFile(null); setInputMode("text"); setFromPhoto(true); setPhotoBusy(false); setError("");
-        if (!title.trim()) setTitle("사진으로 추가한 영어 본문");
+      {inputMode === "photo" ? <PhotoTextCapture onError={message=>setError(message)} onBusyChange={value=>{setPhotoBusy(value);if(value){setError("");beginPractice();}}} onRecognized={async result => {
+        setText(result.text); setFile(null);
+        await finalizeDocument({text:result.text,markedFragments:[],imageDataUrl:result.imageDataUrl,compact:true});
       }} /> : inputMode === "file" ? (
         <label className="dropzone"><input type="file" accept=".pdf,.docx,.txt,.md" onChange={(e) => setFile(e.target.files?.[0] ?? null)} /><strong>{file ? file.name : "PDF, DOCX, TXT, MD 파일 선택"}</strong><span>최대 본문 120,000자 · 흐린 스캔 PDF는 브라우저 OCR로 자동 보완</span></label>
-      ) : <>{fromPhoto && <p className="photo-recognized-note" role="status">사진에서 글자를 가져왔어요. 본문만 남기고 문제 번호·선택지·잘못 읽힌 글자를 확인해 주세요. 아래 내용을 수정한 뒤 학습지를 만들면 됩니다.</p>}<label className="field">영어 본문<textarea rows={12} value={text} onChange={(e) => setText(e.target.value)} placeholder="영어 본문을 여기에 붙여 넣으세요…" /></label></>}
+      ) : <><label className="field">영어 본문<textarea aria-label="영어 본문" rows={12} value={text} onChange={(e) => setText(e.target.value)} placeholder="영어 본문을 여기에 붙여 넣으세요…" /></label></>}
       {status && <p className="processing"><i />{status}</p>}{error && <p className="error-message">{error}</p>}
       {inputMode !== "photo" && <button className="primary-button wide" disabled={busy || photoBusy || (inputMode === "file" ? !file : text.trim().length < 40)} onClick={() => { void create(); }}>{busy ? "학습지 생성 중…" : "AI 학습지 만들기"}</button>}
       <a className="pdf-extractor-link" href="./pdf-extractor.html"><span>PDF</span><div><b>텍스트만 먼저 추출하고 싶나요?</b><small>별도 PDF 텍스트 추출기 열기</small></div><i aria-hidden="true">→</i></a>

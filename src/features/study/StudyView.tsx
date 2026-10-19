@@ -1,3 +1,4 @@
+import "../upload/generation-practice.css";
 import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { supabase } from "../../lib/supabase";
 import { cleanSelection, sameLexeme } from "../../lib/app-utils";
@@ -652,6 +653,14 @@ export function StudyView({ doc, words, progress, onSaveWord, onDeleteWord, onPr
           <small>{doc.source_file_path ? "업로드한 원본 파일을 바로 열거나 다운로드할 수 있어요." : "붙여 넣은 원문을 확인할 수 있어요."}</small>
         </div>
       </section>
+      {doc.analysis.source_exam && <section className="source-exam" aria-label="원본 문제와 보기">
+        <h2>원본 문제와 보기 <span className="exam-type">{doc.analysis.source_exam.questionType}</span></h2>
+        {doc.analysis.source_exam.questions.map((q,index)=><article key={index}><span className="exam-type">{q.label ? `${q.label}번 · `:''}{q.questionType}</span><h3>{q.prompt}</h3><ol>{q.options.map((option,i)=><li key={i}>{option}</li>)}</ol></article>)}
+        {doc.analysis.source_exam.kind === "exam" && !doc.analysis.source_exam.questions.length && <pre>{doc.analysis.source_exam.rawText}</pre>}
+        <details><summary>인식한 원문 전체 보기</summary><pre>{doc.analysis.source_exam.rawText}</pre></details>
+        {doc.analysis.source_exam.ocrText && doc.analysis.source_exam.ocrText !== doc.analysis.source_exam.rawText && <details><summary>최초 글자 인식 결과 보기</summary><pre>{doc.analysis.source_exam.ocrText}</pre></details>}
+        <p>한글 질문과 보기를 지문과 별도로 보존합니다. 사진 인식은 오인식할 수 있으니 필요한 경우 원본과 비교해 주세요.</p>
+      </section>}
       <div className="study-layout">
         <article
           className="article-card"

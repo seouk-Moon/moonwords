@@ -295,7 +295,7 @@ export function useStudyWorkspace(configured: boolean) {
     if (next !== progressRef.current) saveProgress(next);
   };
 
-  const recordQuizAnswer = (mode: QuizMode, correct: boolean, options?: { wordId?: string; sentenceId?: number }) => {
+  const recordQuizAnswer = (mode: QuizMode, correct: boolean, options?: { wordId?: string; sentenceId?: number; questionKey?: string }) => {
     learning.recordQuizAnswer(mode, correct, options);
   };
 
@@ -562,6 +562,9 @@ export function useStudyWorkspace(configured: boolean) {
     recordQuizAnswer,
     recordQuizAttempt,
     learningAnalytics: learning.snapshot,
+    learningEvents: learning.events,
+    quizAttempts: learning.quizAttempts,
+    recordGenerationPractice: (question: import("../features/upload/generation-practice").PracticeQuestion, correct: boolean) => learning.recordEvent({eventType:"quiz_answer",documentId:question.documentId,quizMode:question.mode,wordId:question.wordId,correct,xp:0,metadata:{activity:"generation_practice",questionKey:question.questionKey}}),
     cancelPendingOpen: () => { openRequest.current += 1; },
     analyticsReady: learning.analyticsReady,
     dailyGoals: learning.dailyGoals,
