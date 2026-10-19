@@ -9,3 +9,14 @@ test('photo analysis forwards a validated image, preserves original five options
 test('invalid images are rejected before a model request; ordinary text remains supported',async()=>{
  const ctx=setup();let response=await ctx.call({action:'analyze',text:'A valid English passage with more than forty characters for testing.',imageDataUrl:'https://example.com/photo'});assert.equal(response.status,400);assert.equal(ctx.getRequest(),undefined);response=await ctx.call({action:'analyze',text:'A valid English passage with more than forty characters for testing.'});assert.equal(response.status,200);assert.equal(ctx.getRequest().contents[0].parts.length,1);
 });
+test('class generation forwards notes separately and requests both grounded exercise types',async()=>{
+ const ctx=setup();const response=await ctx.call({action:'analyze',text:'The teacher made the lesson memorable for every student.',classExercises:true,notesText:'memorable에 밑줄, 5형식',noteImages:['data:image/jpeg;base64,AAAA'],classInstructions:'목적격보어 형용사'});
+ assert.equal(response.status,200);const req=ctx.getRequest();assert.equal(req.contents[0].parts[1].inlineData.data,'AAAA');
+ const prompt=req.contents[0].parts[0].text;assert.match(prompt,/5형식/);assert.match(prompt,/근거 없는 조건은 만들지/);assert.match(prompt,/definition_blank/);assert.match(prompt,/guided_writing/);assert.match(prompt,/필기를 source_exam.rawText에 합치지/);
+ assert.ok(req.generationConfig.responseJsonSchema.required.includes('class_exercises'));
+});
+test('rejects unsafe or excessive notes payload before upstream request',async()=>{
+ for(const notes of [{noteImages:['https://example.com/image.png']},{noteImages:Array(9).fill('data:image/png;base64,AAAA')},{notesText:'x'.repeat(120001)},{classInstructions:'x'.repeat(2001)}]){
+ const ctx=setup();const res=await ctx.call({action:'analyze',text:'A source passage long enough to validate this input.',...notes});assert.equal(res.status,400);assert.equal(ctx.getRequest(),undefined);
+ }
+});

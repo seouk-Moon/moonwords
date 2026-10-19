@@ -2,6 +2,7 @@ import { clampPhotoCrop, FULL_PHOTO, validatePhoto, type PhotoCrop } from './pho
 
 export async function recognizePhoto(file: File, options: {
   crop?: PhotoCrop;
+  allowSparseText?: boolean;
   signal?: AbortSignal;
   onProgress?: (message: string) => void;
 } = {}) {
@@ -65,7 +66,7 @@ export async function recognizePhoto(file: File, options: {
     const result = await abortable(worker.recognize(canvas));
     checkCancelled();
     const text = result.data.text.replace(/\u0000/g, '').replace(/\n{3,}/g, '\n\n').trim();
-    if (text.length < 40) throw new Error('본문을 충분히 찾지 못했어요. 밝은 곳에서 본문만 크게 찍거나, 영역을 다시 선택해 주세요.');
+    if (text.length < 40 && !options.allowSparseText) throw new Error('본문을 충분히 찾지 못했어요. 밝은 곳에서 본문만 크게 찍거나, 영역을 다시 선택해 주세요.');
     if (text.length > 120_000) throw new Error('본문이 너무 길어요. 한 지문씩 나눠서 촬영해 주세요.');
     return { text, confidence: result.data.confidence, imageDataUrl };
   } finally {

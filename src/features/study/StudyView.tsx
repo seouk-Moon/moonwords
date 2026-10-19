@@ -1,3 +1,4 @@
+import { ClassExercises } from "./ClassExercises";
 import "../upload/generation-practice.css";
 import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { supabase } from "../../lib/supabase";
@@ -653,6 +654,7 @@ export function StudyView({ doc, words, progress, onSaveWord, onDeleteWord, onPr
           <small>{doc.source_file_path ? "업로드한 원본 파일을 바로 열거나 다운로드할 수 있어요." : "붙여 넣은 원문을 확인할 수 있어요."}</small>
         </div>
       </section>
+      <ClassExercises key={doc.id} analysis={doc.analysis}/>
       {doc.analysis.source_exam && <section className="source-exam" aria-label="원본 문제와 보기">
         <h2>원본 문제와 보기 <span className="exam-type">{doc.analysis.source_exam.questionType}</span></h2>
         {doc.analysis.source_exam.questions.map((q,index)=><article key={index}><span className="exam-type">{q.label ? `${q.label}번 · `:''}{q.questionType}</span><h3>{q.prompt}</h3><ol>{q.options.map((option,i)=><li key={i}>{option}</li>)}</ol></article>)}

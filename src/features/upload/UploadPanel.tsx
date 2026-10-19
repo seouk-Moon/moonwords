@@ -1,3 +1,6 @@
+import "../study/class-exercises.css";
+import { readClassNotes } from "./class-materials";
+import { validateClassExercises } from "../study/class-exercises";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   extractDocumentFromFile,
@@ -51,6 +54,7 @@ type PreparedDocument = {
   markedFragments: string[];
   imageDataUrl?: string;
   compact?: boolean;
+  notesText?: string; noteImages?: string[]; notesOnly?: boolean;
 };
 
 const findBlankIssues = (text: string): BlankIssue[] => {
@@ -128,6 +132,9 @@ export function UploadPanel({
 
   const [title, setTitle] = useState(initialTitle);
   const [text, setText] = useState(initialText);
+  const [notesFile,setNotesFile] = useState<File|null>(null);
+  const [classInstructions,setClassInstructions] = useState("");
+  const [classExercises,setClassExercises] = useState(true);
   const [file, setFile] = useState<File | null>(null);
   const [busy, setBusy] = useState(false);
   const [status, setStatus] = useState("");
@@ -141,7 +148,7 @@ export function UploadPanel({
     let lastMessage = "AI 처리 요청에 실패했습니다.";
     for (let attempt = 0; attempt < 2; attempt += 1) {
       const response = await supabase.functions.invoke("process-document", {
-        body: { action: "analyze", title: documentTitle, text: originalText, questionCount: 10, imageDataUrl: source.imageDataUrl, compactReading: source.compact === true },
+        body: { action: "analyze", title: documentTitle, text: originalText, questionCount: 10, imageDataUrl: source.imageDataUrl, compactReading: source.compact === true, notesText:source.notesText, noteImages:source.noteImages, notesOnly:source.notesOnly, classInstructions, classExercises },
       });
       if (!response.error) return response.data;
       lastMessage = await getFunctionErrorMessage(response.error);
@@ -160,6 +167,10 @@ export function UploadPanel({
     try {
       const client = supabase;
       if (!client) throw new Error("Supabase 연결이 필요합니다.");
+      if (notesFile && source.notesText === undefined) {
+        const notes = await readClassNotes(notesFile,setStatus);
+        source = {...source,notesText:notes.text,noteImages:notes.images};
+      }
       const originalText = source.text;
       const sourceFile = !source.imageDataUrl && inputMode === "file" ? file : null;
       const documentId = uid();
@@ -178,6 +189,9 @@ export function UploadPanel({
       const responseData = await analyzeWithRetry(title || sourceFile?.name || "새 영어 본문", originalText, source);
       const normalizedAnalysis = normalizeNewDocumentAnalysis(responseData.analysis as DocumentAnalysis);
       const analysis = preserveExamSource(applySourceMarks(normalizedAnalysis, source.markedFragments), originalText, source.compact, Boolean(source.imageDataUrl));
+      if (source.notesOnly && analysis.source_exam?.rawText) analysis.source_exam.rawText = normalizedAnalysis.source_exam?.rawText || analysis.source_exam.rawText;
+      if (classExercises) analysis.class_exercises = validateClassExercises(normalizedAnalysis.class_exercises, analysis.sentences.map(s=>s.english).join(" "));
+      analysis.class_materials = {notesText:source.notesText || "",notesName:notesFile?.name || "",originalName:sourceFile?.name || (source.imageDataUrl ? "촬영 본문" : ""),instructions:classInstructions};
       const payload = {
         id: documentId,
         user_id: userId,
@@ -211,6 +225,11 @@ export function UploadPanel({
     setError("");
     try {
       setStatus("본문을 읽는 중…");
+      if (inputMode === "file" && !file && notesFile) {
+        const notes = await readClassNotes(notesFile,setStatus);
+        await finalizeDocument({text:notes.text.length>=40 ? notes.text : "필기본 이미지에서 실제 영어 본문과 한글 필기를 읽어 분석해 주세요. 보이지 않는 본문은 창작하지 마세요.", markedFragments:[],notesText:notes.text,noteImages:notes.images,notesOnly:true});
+        return;
+      }
       const extracted = inputMode === "file" && file
         ? await extractDocumentFromFile(file, { onProgress: (progress) => setStatus(describeExtractionProgress(progress)) })
         : { text: normalizePastedText(text), markedFragments: [] as string[] };
@@ -311,10 +330,20 @@ export function UploadPanel({
         setText(result.text); setFile(null);
         await finalizeDocument({text:result.text,markedFragments:[],imageDataUrl:result.imageDataUrl,compact:true});
       }} /> : inputMode === "file" ? (
-        <label className="dropzone"><input type="file" accept=".pdf,.docx,.txt,.md" onChange={(e) => setFile(e.target.files?.[0] ?? null)} /><strong>{file ? file.name : "PDF, DOCX, TXT, MD 파일 선택"}</strong><span>최대 본문 120,000자 · 흐린 스캔 PDF는 브라우저 OCR로 자동 보완</span></label>
+        <label className="dropzone"><input type="file" accept=".pdf,.docx,.txt,.md" onChange={(e) => setFile(e.target.files?.[0] ?? null)} /><strong>{file ? file.name : "원문 (선택) · PDF, DOCX, TXT, MD"}</strong><span>최대 본문 120,000자 · 흐린 스캔 PDF는 브라우저 OCR로 자동 보완</span></label>
       ) : <><label className="field">영어 본문<textarea aria-label="영어 본문" rows={12} value={text} onChange={(e) => setText(e.target.value)} placeholder="영어 본문을 여기에 붙여 넣으세요…" /></label></>}
+      <fieldset className="class-upload-options" disabled={busy || photoBusy}>
+        <legend>수업 자료와 맞춤 출제</legend>
+        <p>원문과 필기본 중 하나만 있어도 돼요. 사진 촬영과 함께 쓸 필기본은 먼저 선택해 주세요.</p>
+        <label className="field">필기본 (선택)<input type="file" accept=".pdf,.docx,.txt,.md,.jpg,.jpeg,.png,.webp" onChange={e=>setNotesFile(e.target.files?.[0]??null)} /></label>
+        {notesFile && <button type="button" onClick={()=>setNotesFile(null)}>필기본 선택 해제 · {notesFile.name}</button>}
+        {file && inputMode === "file" && <button type="button" onClick={()=>setFile(null)}>원문 선택 해제 · {file.name}</button>}
+        <small>필기 PDF는 8쪽·20MB까지. 사진/PDF는 글씨와 표시를 AI에 함께 보내요. 읽기 어려운 손글씨는 조건란에 보충해 주세요.</small>
+        <label className="field">수업에서 배운 조건 (선택)<textarea maxLength={2000} rows={3} value={classInstructions} onChange={e=>setClassInstructions(e.target.value)} placeholder="예: 5형식, 목적격 보어로 형용사 사용. 필기에서 흐린 부분도 여기에 적어 주세요." /></label>
+        <label><input type="checkbox" checked={classExercises} onChange={e=>setClassExercises(e.target.checked)} /> 영영풀이 빈칸 + 조건 영작 문제 만들기</label>
+      </fieldset>
       {status && <p className="processing"><i />{status}</p>}{error && <p className="error-message">{error}</p>}
-      {inputMode !== "photo" && <button className="primary-button wide" disabled={busy || photoBusy || (inputMode === "file" ? !file : text.trim().length < 40)} onClick={() => { void create(); }}>{busy ? "학습지 생성 중…" : "AI 학습지 만들기"}</button>}
+      {inputMode !== "photo" && <button className="primary-button wide" disabled={busy || photoBusy || (inputMode === "file" ? !file && !notesFile : text.trim().length < 40)} onClick={() => { void create(); }}>{busy ? "학습지 생성 중…" : "AI 학습지 만들기"}</button>}
       <a className="pdf-extractor-link" href="./pdf-extractor.html"><span>PDF</span><div><b>텍스트만 먼저 추출하고 싶나요?</b><small>별도 PDF 텍스트 추출기 열기</small></div><i aria-hidden="true">→</i></a>
     </section>
   );

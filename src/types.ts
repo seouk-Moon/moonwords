@@ -31,7 +31,15 @@ export type SourceExam = {
   questions: { label: string; questionType: string; prompt: string; options: string[] }[];
 };
 
+export type ClassExercise = {
+  kind: "definition_blank" | "guided_writing";
+  passage: string; answer: string; firstLetter: string; definition: string;
+  translation: string; givenWords: string[]; conditions: string[];
+  explanation: string; evidence: string; basis: "notes" | "passage";
+};
 export type DocumentAnalysis = {
+  class_exercises?: ClassExercise[];
+  class_materials?: { notesText: string; notesName: string; originalName: string; instructions: string };
   source_exam?: SourceExam;
   collection?: { sourceDocumentIds: string[]; scope: "starred" | "important" | "all"; wordCount: number };
   level: string;
