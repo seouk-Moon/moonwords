@@ -1,0 +1,20 @@
+.library-kind-tabs { display: flex; flex-wrap: wrap; gap: 8px; margin: 22px 0; }
+.library-kind-tabs button { display: inline-flex; align-items: center; gap: 9px; padding: 11px 16px; border: 1px solid #dce4ee; border-radius: 12px; background: #fff; color: #607087; font-weight: 700; cursor: pointer; }
+.library-kind-tabs button[aria-pressed=true] { background: #243753; border-color: #243753; color: #fff; }
+.library-kind-tabs span { font-size: 11px; opacity: .75; }
+.library-kind-section.collections { margin-top: 32px; }
+.library-kind-section.collections .modern-section-heading h2 { color: #67518e; }
+.document-card.collection-library-card { border-color: #ded3ef; background: linear-gradient(145deg,#fff,#faf7ff); }
+.collection-library-card .doc-topic { color: #72569a; background: #f0e9fa; }
+.continue-reading-card.continue-collection { border-color: #e0d6ef; background: linear-gradient(110deg,#f8f5ff,#fefcff); }
+.continue-collection .continue-badge, .continue-collection .continue-action { color: #72569a; }
+.topbar .workspace-back { display: grid; place-items: center; flex: 0 0 40px; min-height: 44px; padding: 0; border: 1px solid #e0e7ef; border-radius: 12px; background: #fff; color: #324866; cursor: pointer; font-size: 21px; }
+@media(max-width:540px) {
+  .library-kind-tabs { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 6px; }
+  .library-kind-tabs button { justify-content: center; min-height: 46px; padding: 10px 7px; font-size: 12px; }
+  .library-kind-section .document-card footer { gap: 10px; }
+  .library-kind-section .folder-select-label select, .library-kind-section .document-delete-button { min-height: 44px; }
+  .topbar .workspace-back { flex-basis: 34px; border-color: transparent; }
+  .topbar { gap: 6px; }
+  .topbar .brand-button { min-width: 0; }
+}

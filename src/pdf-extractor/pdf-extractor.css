@@ -185,3 +185,5 @@ button { cursor: pointer; font-weight: 650; }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { scroll-behavior: auto !important; animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
 }
+
+@media(max-width:680px){.pdf-tool-shell button,.pdf-tool-shell input,.pdf-tool-shell select,.pdf-tool-back{min-height:44px}.pdf-tool-result textarea{font-size:16px}.pdf-tool-back{display:inline-flex;align-items:center}}

@@ -9,6 +9,7 @@ import { Logo } from "./components/brand/Logo";
 import { AuthScreen } from "./features/auth/AuthScreen";
 import { UploadPanel } from "./features/upload/UploadPanel";
 import { LibraryPage } from "./features/library/LibraryPage";
+import { DEFAULT_LIBRARY_LOCATION } from "./features/library/library-location";
 import { StudyView } from "./features/study/StudyView";
 import { Wordbook } from "./features/vocabulary/Wordbook";
 import { Quiz } from "./features/quiz/Quiz";
@@ -19,6 +20,7 @@ import { ProfilePage } from "./features/profile/ProfilePage";
 import { MoonGrowthCard } from "./features/progress/MoonGrowthCard";
 import { MoonRewardToast } from "./features/progress/MoonRewardToast";
 import { useStudyWorkspace } from "./hooks/useStudyWorkspace";
+import { useWorkspaceHistory } from "./hooks/useWorkspaceHistory";
 import { signOutThisBrowser, useDeviceSession } from "./hooks/useDeviceSession";
 import { useQuizGeneration } from "./hooks/useQuizGeneration";
 import type { View } from "./app-types";
@@ -38,6 +40,7 @@ export default function App({ supabaseUrl, supabasePublishableKey }: AppProps = 
   const configured = cloudConfigured;
   const [uploadFolderId, setUploadFolderId] = useState<string | null>(null);
   const [uploadMode, setUploadMode] = useState<"file" | "photo">("file");
+  const [libraryLocation, setLibraryLocation] = useState(DEFAULT_LIBRARY_LOCATION);
   const [infoPage, setInfoPage] = useState<InfoPage | null>(null);
   const [pdfTransfer, setPdfTransfer] = useState<PdfTextTransfer | null>(null);
   const pdfTransferOpenedRef = useRef(false);
@@ -56,6 +59,34 @@ export default function App({ supabaseUrl, supabasePublishableKey }: AppProps = 
   const workspaceLoading = workspace.loading;
   const workspaceSession = workspace.session;
   const setWorkspaceView = workspace.setView;
+  const navigation = useWorkspaceHistory({
+    owner: workspace.session?.user.id ?? (configured ? "guest" : "demo"),
+    ready: !workspace.loading,
+    location: {
+      view: workspace.view,
+      documentId: ["study", "words", "quiz"].includes(workspace.view) ? workspace.current?.id ?? null : null,
+      infoPage, library: libraryLocation,
+      uploadFolderId: workspace.view === "upload" ? uploadFolderId : null,
+      uploadMode: workspace.view === "upload" ? uploadMode : "file",
+    },
+    restore: async (target, isCurrent) => {
+      workspace.cancelPendingOpen();
+      setInfoPage(target.infoPage);
+      setLibraryLocation(target.library);
+      setUploadFolderId(target.uploadFolderId);
+      setUploadMode(target.uploadMode);
+      if (target.documentId && target.documentId !== workspace.current?.id) {
+        const document = workspace.documents.find(item => item.id === target.documentId);
+        if (!document) { workspace.setView("library"); return; }
+        let unavailable = false;
+        try { await workspace.openDocument(document, () => { unavailable = true; }); }
+        catch { unavailable = true; }
+        if (!isCurrent()) return;
+        if (unavailable) { workspace.setView("library"); return; }
+      }
+      if (isCurrent()) workspace.setView(target.view);
+    },
+  });
 
   useEffect(() => {
     const timeout = window.setTimeout(() => setPdfTransfer(readPendingPdfTransfer()), 0);
@@ -133,6 +164,8 @@ export default function App({ supabaseUrl, supabasePublishableKey }: AppProps = 
         session={workspace.session}
         streak={workspace.learningAnalytics.currentStreak}
         dailyComplete={workspace.learningAnalytics.today.qualified}
+        canGoBack={navigation.canGoBack}
+        onBack={navigation.goBack}
         onView={navigateToView}
         onSignOut={() => { void signOutThisBrowser(); }}
       />
@@ -166,7 +199,8 @@ export default function App({ supabaseUrl, supabasePublishableKey }: AppProps = 
           onDeleteFolder={workspace.deleteFolder}
           onDeleteDocument={workspace.deleteDocument}
           onMoveDocument={workspace.moveDocumentToFolder}
-          onMoveFolder={workspace.moveFolder}
+          location={libraryLocation}
+          onLocationChange={setLibraryLocation}
           />
       )}
 

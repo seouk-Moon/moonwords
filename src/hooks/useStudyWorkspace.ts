@@ -108,7 +108,7 @@ export function useStudyWorkspace(configured: boolean) {
     return () => { active = false; };
   }, [session]);
 
-  const openDocument = useCallback(async (doc: StudyDocument) => {
+  const openDocument = useCallback(async (doc: StudyDocument, onUnavailable?: () => void) => {
     const requestId = ++openRequest.current;
     const now = new Date().toISOString();
     let normalizedDocument = normalizeDocumentLevel({ ...doc, last_studied_at: now });
@@ -154,7 +154,8 @@ export function useStudyWorkspace(configured: boolean) {
       supabase.from("study_progress").select("*").eq("document_id", doc.id).maybeSingle(),
     ]);
 
-    if (requestId !== openRequest.current || wordResult.error || progressResult.error) return;
+    if (requestId !== openRequest.current) return;
+    if (wordResult.error || progressResult.error) { onUnavailable?.(); return; }
     setCollectionSyncNotice(syncNotice);
     const nextWords = (wordResult.data ?? []) as VocabularyItem[];
     let nextProgress: StudyProgress = {
@@ -561,6 +562,7 @@ export function useStudyWorkspace(configured: boolean) {
     recordQuizAnswer,
     recordQuizAttempt,
     learningAnalytics: learning.snapshot,
+    cancelPendingOpen: () => { openRequest.current += 1; },
     analyticsReady: learning.analyticsReady,
     dailyGoals: learning.dailyGoals,
     updateDailyGoals: learning.updateDailyGoals,

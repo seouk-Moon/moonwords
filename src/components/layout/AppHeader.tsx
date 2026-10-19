@@ -9,6 +9,8 @@ type Props = {
   session: Session | null;
   streak?: number;
   dailyComplete?: boolean;
+  canGoBack?: boolean;
+  onBack?: () => void;
   onView: (view: View) => void;
   onSignOut: () => void;
 };
@@ -27,12 +29,13 @@ const getDisplayName = (session: Session | null) => {
 
 const getInitials = (session: Session | null) => getDisplayName(session).slice(0, 2).toUpperCase();
 
-export function AppHeader({ view, hasCurrent, configured, session, streak = 0, dailyComplete = false, onView, onSignOut }: Props) {
+export function AppHeader({ view, hasCurrent, configured, session, streak = 0, dailyComplete = false, canGoBack = false, onBack, onView, onSignOut }: Props) {
   const inDocumentWorkspace = hasCurrent && (view === "study" || view === "words" || view === "quiz");
   const avatarUrl = String(session?.user.user_metadata?.avatar_url ?? "");
 
   return (
     <header className="topbar">
+      {canGoBack && <button type="button" className="workspace-back" onClick={onBack} aria-label="이전 화면으로">←</button>}
       <button className="brand-button" onClick={() => onView("library")} aria-label="MoonWords 내 본문">
         <Logo />
       </button>
