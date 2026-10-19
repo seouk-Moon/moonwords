@@ -561,6 +561,7 @@ export function useStudyWorkspace(configured: boolean) {
     recordQuizAnswer,
     recordQuizAttempt,
     learningAnalytics: learning.snapshot,
+    analyticsReady: learning.analyticsReady,
     dailyGoals: learning.dailyGoals,
     updateDailyGoals: learning.updateDailyGoals,
     recordFullListeningCompleted: learning.recordFullListeningCompleted,

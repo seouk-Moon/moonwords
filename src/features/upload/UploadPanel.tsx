@@ -9,6 +9,7 @@ import { uid } from "../../lib/app-utils";
 import { normalizeNewDocumentAnalysis } from "../../lib/analysis-normalization";
 import { supabase } from "../../lib/supabase";
 import type { DocumentAnalysis, StudyDocument } from "../../types";
+import { PhotoTextCapture } from "./PhotoTextCapture";
 
 const normalizeForMark = (value: string) => value
   .toLowerCase()
@@ -88,6 +89,7 @@ const describeExtractionProgress = (progress: DocumentExtractionProgress) => {
 export function UploadPanel({
   userId,
   folderId = null,
+  initialMode = "file",
   initialTitle = "",
   initialText = "",
   importedFromPdfTool = false,
@@ -96,13 +98,16 @@ export function UploadPanel({
 }: {
   userId: string;
   folderId?: string | null;
+  initialMode?: "file" | "photo";
   initialTitle?: string;
   initialText?: string;
   importedFromPdfTool?: boolean;
   onCreated: (doc: StudyDocument) => void;
   onCancel: () => void;
 }) {
-  const [inputMode, setInputMode] = useState<"file" | "text">(initialText ? "text" : "file");
+  const [inputMode, setInputMode] = useState<"file" | "text" | "photo">(initialText ? "text" : initialMode);
+  const [photoBusy, setPhotoBusy] = useState(false);
+  const [fromPhoto, setFromPhoto] = useState(false);
   const [title, setTitle] = useState(initialTitle);
   const [text, setText] = useState(initialText);
   const [file, setFile] = useState<File | null>(null);
@@ -138,29 +143,30 @@ export function UploadPanel({
       const client = supabase;
       if (!client) throw new Error("Supabase 연결이 필요합니다.");
       const originalText = source.text;
+      const sourceFile = inputMode === "file" ? file : null;
       const documentId = uid();
       let sourcePath: string | null = null;
 
-      if (file) {
+      if (sourceFile) {
         setStatus("원본 파일을 저장하는 중…");
-        const requestedExtension = file.name.split(".").pop()?.toLowerCase() ?? "bin";
+        const requestedExtension = sourceFile.name.split(".").pop()?.toLowerCase() ?? "bin";
         const safeExtension = requestedExtension.replace(/[^a-z0-9]/g, "") || "bin";
         sourcePath = `${userId}/${documentId}/source.${safeExtension}`;
-        const upload = await client.storage.from("source-files").upload(sourcePath, file);
+        const upload = await client.storage.from("source-files").upload(sourcePath, sourceFile);
         if (upload.error) throw upload.error;
       }
 
       setStatus("번역과 학습 문제를 만드는 중…");
-      const responseData = await analyzeWithRetry(title || file?.name || "새 영어 본문", originalText);
+      const responseData = await analyzeWithRetry(title || sourceFile?.name || "새 영어 본문", originalText);
       const normalizedAnalysis = normalizeNewDocumentAnalysis(responseData.analysis as DocumentAnalysis);
       const analysis = applySourceMarks(normalizedAnalysis, source.markedFragments);
       const payload = {
         id: documentId,
         user_id: userId,
         ...(folderId ? { folder_id: folderId } : {}),
-        title: title.trim() || file?.name.replace(/\.[^.]+$/, "") || "새 영어 본문",
-        source_name: file?.name ?? null,
-        source_type: file?.name.split(".").pop()?.toLowerCase() ?? "text",
+        title: title.trim() || sourceFile?.name.replace(/\.[^.]+$/, "") || "새 영어 본문",
+        source_name: sourceFile?.name ?? null,
+        source_type: sourceFile?.name.split(".").pop()?.toLowerCase() ?? "text",
         source_file_path: sourcePath,
         original_text: originalText,
         analysis,
@@ -277,13 +283,16 @@ export function UploadPanel({
           <a href="./pdf-extractor.html">추출기 다시 열기</a>
         </div>
       )}
-      <div className="segmented"><button className={inputMode === "file" ? "active" : ""} onClick={() => setInputMode("file")}>파일 올리기</button><button className={inputMode === "text" ? "active" : ""} onClick={() => setInputMode("text")}>텍스트 붙여넣기</button></div>
+      <div className="segmented"><button disabled={busy || photoBusy} className={inputMode === "file" ? "active" : ""} onClick={() => setInputMode("file")}>파일 올리기</button><button disabled={busy || photoBusy} className={inputMode === "photo" ? "active" : ""} onClick={() => setInputMode("photo")}>사진으로 추가</button><button disabled={busy || photoBusy} className={inputMode === "text" ? "active" : ""} onClick={() => setInputMode("text")}>텍스트 붙여넣기</button></div>
       <label className="field">제목 (선택)<input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="예: The Future of Space Travel" /></label>
-      {inputMode === "file" ? (
+      {inputMode === "photo" ? <PhotoTextCapture onBusyChange={setPhotoBusy} onRecognized={recognizedText => {
+        setText(recognizedText); setFile(null); setInputMode("text"); setFromPhoto(true); setPhotoBusy(false); setError("");
+        if (!title.trim()) setTitle("사진으로 추가한 영어 본문");
+      }} /> : inputMode === "file" ? (
         <label className="dropzone"><input type="file" accept=".pdf,.docx,.txt,.md" onChange={(e) => setFile(e.target.files?.[0] ?? null)} /><strong>{file ? file.name : "PDF, DOCX, TXT, MD 파일 선택"}</strong><span>최대 본문 120,000자 · 흐린 스캔 PDF는 브라우저 OCR로 자동 보완</span></label>
-      ) : <label className="field">영어 본문<textarea rows={12} value={text} onChange={(e) => setText(e.target.value)} placeholder="영어 본문을 여기에 붙여 넣으세요…" /></label>}
+      ) : <>{fromPhoto && <p className="photo-recognized-note" role="status">사진에서 글자를 가져왔어요. 본문만 남기고 문제 번호·선택지·잘못 읽힌 글자를 확인해 주세요. 아래 내용을 수정한 뒤 학습지를 만들면 됩니다.</p>}<label className="field">영어 본문<textarea rows={12} value={text} onChange={(e) => setText(e.target.value)} placeholder="영어 본문을 여기에 붙여 넣으세요…" /></label></>}
       {status && <p className="processing"><i />{status}</p>}{error && <p className="error-message">{error}</p>}
-      <button className="primary-button wide" disabled={busy || (inputMode === "file" ? !file : text.trim().length < 40)} onClick={() => { void create(); }}>{busy ? "학습지 생성 중…" : "AI 학습지 만들기"}</button>
+      {inputMode !== "photo" && <button className="primary-button wide" disabled={busy || photoBusy || (inputMode === "file" ? !file : text.trim().length < 40)} onClick={() => { void create(); }}>{busy ? "학습지 생성 중…" : "AI 학습지 만들기"}</button>}
       <a className="pdf-extractor-link" href="./pdf-extractor.html"><span>PDF</span><div><b>텍스트만 먼저 추출하고 싶나요?</b><small>별도 PDF 텍스트 추출기 열기</small></div><i aria-hidden="true">→</i></a>
     </section>
   );

@@ -16,6 +16,8 @@ import { GenerationToast } from "./features/quiz/GenerationToast";
 import { SupportChatbot } from "./features/support/SupportChatbot";
 import { LegalPage } from "./features/legal/LegalPage";
 import { ProfilePage } from "./features/profile/ProfilePage";
+import { MoonGrowthCard } from "./features/progress/MoonGrowthCard";
+import { MoonRewardToast } from "./features/progress/MoonRewardToast";
 import { useStudyWorkspace } from "./hooks/useStudyWorkspace";
 import { signOutThisBrowser, useDeviceSession } from "./hooks/useDeviceSession";
 import { useQuizGeneration } from "./hooks/useQuizGeneration";
@@ -35,6 +37,7 @@ export default function App({ supabaseUrl, supabasePublishableKey }: AppProps = 
   configureSupabase(supabaseUrl, supabasePublishableKey);
   const configured = cloudConfigured;
   const [uploadFolderId, setUploadFolderId] = useState<string | null>(null);
+  const [uploadMode, setUploadMode] = useState<"file" | "photo">("file");
   const [infoPage, setInfoPage] = useState<InfoPage | null>(null);
   const [pdfTransfer, setPdfTransfer] = useState<PdfTextTransfer | null>(null);
   const pdfTransferOpenedRef = useRef(false);
@@ -83,9 +86,10 @@ export default function App({ supabaseUrl, supabasePublishableKey }: AppProps = 
     workspace.setView(view);
   };
 
-  const openManualUpload = (folderId: string | null = null) => {
+  const openManualUpload = (folderId: string | null = null, mode: "file" | "photo" = "file") => {
     discardPdfTransfer();
     setUploadFolderId(folderId);
+    setUploadMode(mode);
     workspace.setView("upload");
   };
 
@@ -127,6 +131,8 @@ export default function App({ supabaseUrl, supabasePublishableKey }: AppProps = 
         hasCurrent={Boolean(workspace.current)}
         configured={configured}
         session={workspace.session}
+        streak={workspace.learningAnalytics.currentStreak}
+        dailyComplete={workspace.learningAnalytics.today.qualified}
         onView={navigateToView}
         onSignOut={() => { void signOutThisBrowser(); }}
       />
@@ -140,6 +146,13 @@ export default function App({ supabaseUrl, supabasePublishableKey }: AppProps = 
         />
       )}
 
+      {!infoPage && workspace.view === "library" && <div className="moon-home"><MoonGrowthCard
+        analytics={workspace.learningAnalytics}
+        goals={workspace.dailyGoals}
+        ready={workspace.analyticsReady}
+        onOpenProfile={() => navigateToView("profile")}
+      /></div>}
+
       {!infoPage && workspace.view === "library" && (
         <LibraryPage
           documents={workspace.documents}
@@ -147,6 +160,7 @@ export default function App({ supabaseUrl, supabasePublishableKey }: AppProps = 
           onOpen={workspace.openDocument}
           onCreateCollection={workspace.createWordbookCollection}
           onUpload={openManualUpload}
+          onPhotoUpload={(folderId) => openManualUpload(folderId, "photo")}
           onCreateFolder={workspace.createFolder}
           onRenameFolder={workspace.renameFolder}
           onDeleteFolder={workspace.deleteFolder}
@@ -161,6 +175,7 @@ export default function App({ supabaseUrl, supabasePublishableKey }: AppProps = 
           key={pdfTransfer ? `pdf-${pdfTransfer.createdAt}` : "manual-upload"}
           userId={workspace.session.user.id}
           folderId={uploadFolderId}
+          initialMode={uploadMode}
           initialTitle={pdfTransfer?.title}
           initialText={pdfTransfer?.text}
           importedFromPdfTool={Boolean(pdfTransfer)}
@@ -228,6 +243,7 @@ export default function App({ supabaseUrl, supabasePublishableKey }: AppProps = 
         <ProfilePage
           session={workspace.session}
           analytics={workspace.learningAnalytics}
+          analyticsReady={workspace.analyticsReady}
           goals={workspace.dailyGoals}
           onGoalsChange={workspace.updateDailyGoals}
           onBack={() => navigateToView("library")}
@@ -235,6 +251,14 @@ export default function App({ supabaseUrl, supabasePublishableKey }: AppProps = 
       )}
 
       {infoPage && <LegalPage page={infoPage} onBack={() => setInfoPage(null)} />}
+
+      {workspace.session && <MoonRewardToast
+        userId={workspace.session.user.id}
+        dateKey={workspace.learningAnalytics.today.dateKey}
+        complete={workspace.learningAnalytics.today.qualified}
+        ready={workspace.analyticsReady}
+        streak={workspace.learningAnalytics.currentStreak}
+      />}
 
       {!infoPage && <MobileBottomNav
         view={workspace.view}

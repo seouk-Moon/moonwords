@@ -12,6 +12,7 @@ type Props = {
   onOpen: (doc: StudyDocument) => void;
   onCreateCollection: (options: CollectionOptions) => Promise<StudyDocument>;
   onUpload: (folderId?: string | null) => void;
+  onPhotoUpload?: (folderId?: string | null) => void;
   onCreateFolder: (name: string) => Promise<DocumentFolder>;
   onRenameFolder: (folderId: string, name: string) => Promise<void>;
   onDeleteFolder: (folderId: string) => Promise<void>;
@@ -32,6 +33,7 @@ export function LibraryPage({
   onOpen,
   onCreateCollection,
   onUpload,
+  onPhotoUpload,
   onCreateFolder,
   onRenameFolder,
   onDeleteFolder,
@@ -134,7 +136,7 @@ export function LibraryPage({
           <h1>내 본문</h1>
           <p>공부할 본문을 고르거나 새 본문을 추가하세요. 학습 현황은 상단 프로필에서 확인할 수 있어요.</p>
         </div>
-        <div className="collection-library-actions"><button className="outline-button" disabled={!documents.length} onClick={() => setCreatingCollection(true)}>☆ 통합 단어장 만들기</button><button className="primary-button new-reading-button" onClick={() => onUpload(defaultUploadFolder)}>＋ 새 본문</button></div>
+        <div className="collection-library-actions"><button className="outline-button" disabled={!documents.length} onClick={() => setCreatingCollection(true)}>☆ 통합 단어장 만들기</button>{onPhotoUpload && <button className="outline-button" onClick={() => onPhotoUpload(defaultUploadFolder)}>사진으로 추가</button>}<button className="primary-button new-reading-button" onClick={() => onUpload(defaultUploadFolder)}>＋ 새 본문</button></div>
       </section>
 
 

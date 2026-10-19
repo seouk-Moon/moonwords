@@ -5,6 +5,7 @@ import type { LearningEvent, LearningEventType, LearningSession, QuizAttempt, St
 import { uid } from "../lib/app-utils";
 import { supabase } from "../lib/supabase";
 import { buildLearningAnalytics, DEFAULT_DAILY_GOALS, localDateKey, normalizeDailyGoals, type DailyGoalSettings } from "../features/progress/learning-analytics";
+import { readLearningHistory } from "../features/progress/learning-history";
 
 const quizXp = (correct: boolean) => correct ? 10 : 3;
 const activeViews: View[] = ["study", "words", "quiz"];
@@ -25,6 +26,15 @@ export function useLearningAnalytics({
   const [vocabularyCount, setVocabularyCount] = useState(0);
   const [completedDocumentIds, setCompletedDocumentIds] = useState<string[]>([]);
   const [dailyGoals, setDailyGoals] = useState<DailyGoalSettings>(DEFAULT_DAILY_GOALS);
+  const [analyticsReady, setAnalyticsReady] = useState(false);
+  const [todayKey, setTodayKey] = useState(() => localDateKey(new Date()));
+
+  useEffect(() => {
+    const tick = () => setTodayKey(localDateKey(new Date()));
+    const timer = window.setInterval(tick, 60_000);
+    window.addEventListener("focus", tick);
+    return () => { window.clearInterval(timer); window.removeEventListener("focus", tick); };
+  }, []);
 
   useEffect(() => {
     const storageKey = `moonwords:daily-goals:${session?.user.id ?? "demo-user"}`;
@@ -48,19 +58,22 @@ export function useLearningAnalytics({
     setCompletedDocumentIds([]);
     if (!supabase || !session) {
       setStorageReady(true);
+      setAnalyticsReady(true);
       return;
     }
+    setAnalyticsReady(false);
     let cancelled = false;
+    const client = supabase;
     void Promise.all([
-      supabase.from("learning_events").select("*").order("created_at", { ascending: true }),
-      supabase.from("learning_sessions").select("*").order("started_at", { ascending: true }),
-      supabase.from("quiz_attempts").select("*").order("created_at", { ascending: true }),
+      readLearningHistory<LearningEvent>((from, to) => client.from("learning_events").select("*").order("created_at", { ascending: true }).order("id").range(from, to)),
+      readLearningHistory<LearningSession>((from, to) => client.from("learning_sessions").select("*").order("started_at", { ascending: true }).order("id").range(from, to)),
+      readLearningHistory<QuizAttempt>((from, to) => client.from("quiz_attempts").select("*").order("created_at", { ascending: true }).order("id").range(from, to)),
       supabase.from("vocabulary").select("id", { count: "exact", head: true }),
       supabase.from("study_progress").select("document_id,understood_sentence_ids"),
       supabase.from("documents").select("id,analysis"),
     ]).then(([eventResult, sessionResult, attemptResult, vocabularyResult, progressResult, documentResult]) => {
       if (cancelled) return;
-      const missingTables = Boolean(eventResult.error || sessionResult.error);
+      const missingTables = Boolean(eventResult.error || sessionResult.error || attemptResult.error);
       setStorageReady(!missingTables);
       if (!eventResult.error) setEvents((eventResult.data ?? []) as LearningEvent[]);
       if (!sessionResult.error) setSessions((sessionResult.data ?? []) as LearningSession[]);
@@ -74,6 +87,9 @@ export function useLearningAnalytics({
         });
         setCompletedDocumentIds([...new Set(completed)]);
       }
+      setAnalyticsReady(true);
+    }).catch(() => {
+      if (!cancelled) { setStorageReady(false); setAnalyticsReady(true); }
     });
     return () => { cancelled = true; };
   }, [session?.user.id]);
@@ -255,7 +271,7 @@ export function useLearningAnalytics({
 
   const snapshot = useMemo(
     () => buildLearningAnalytics({ events, sessions, quizAttempts, storageReady, vocabularyCount, completedDocumentCount: completedDocumentIds.length, dailyGoals }),
-    [events, sessions, quizAttempts, storageReady, vocabularyCount, completedDocumentIds, dailyGoals],
+    [events, sessions, quizAttempts, storageReady, vocabularyCount, completedDocumentIds, dailyGoals, todayKey],
   );
 
   return {
@@ -263,6 +279,7 @@ export function useLearningAnalytics({
     sessions,
     quizAttempts,
     snapshot,
+    analyticsReady,
     dailyGoals,
     updateDailyGoals,
     recordQuizAnswer,

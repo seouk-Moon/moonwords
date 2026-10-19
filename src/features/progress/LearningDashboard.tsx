@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import type { DailyGoalSettings, LearningAnalyticsSnapshot } from "./learning-analytics";
+import { MoonGrowthCard } from "./MoonGrowthCard";
+import { dailyMissionProgress } from "./moon-growth";
 
 const clamp = (value: number) => Math.max(0, Math.min(10, Math.round(Number(value) || 0)));
 const progress = (value: number, goal: number) => goal <= 0 ? 100 : Math.min(100, Math.round((value / goal) * 100));
@@ -14,10 +16,12 @@ const formatStudyTime = (seconds: number) => {
 export function LearningDashboard({
   analytics,
   goals,
+  ready,
   onGoalsChange,
 }: {
   analytics: LearningAnalyticsSnapshot;
   goals: DailyGoalSettings;
+  ready: boolean;
   onGoalsChange: (next: DailyGoalSettings) => void;
 }) {
   const [showGoalSettings, setShowGoalSettings] = useState(false);
@@ -31,10 +35,7 @@ export function LearningDashboard({
     { key: "flashcardDocuments" as const, label: "플래시카드", value: analytics.today.flashcardDocuments, goal: goals.flashcardDocuments },
     { key: "quizDocuments" as const, label: "퀴즈", value: analytics.today.quizDocuments, goal: goals.quizDocuments },
   ], [analytics.today, goals]);
-  const enabledRows = missionRows.filter((row) => row.goal > 0);
-  const todayProgress = enabledRows.length
-    ? Math.round(enabledRows.reduce((sum, row) => sum + progress(row.value, row.goal), 0) / enabledRows.length)
-    : 100;
+  const todayProgress = dailyMissionProgress(analytics.today, goals);
 
   const saveGoals = () => {
     onGoalsChange({
@@ -47,6 +48,7 @@ export function LearningDashboard({
 
   return (
     <section className="growth-dashboard simplified-learning-dashboard" aria-label="학습 목표와 연속 학습 기록">
+      <MoonGrowthCard analytics={analytics} goals={goals} ready={ready} />
       <div className="simple-learning-overview">
         <article className="mission-card">
           <header>
@@ -74,11 +76,18 @@ export function LearningDashboard({
           )}
         </article>
 
-        <article className="simple-streak-card">
-          <span className="growth-kicker">STREAK</span>
-          <strong>{analytics.currentStreak}<small>일</small></strong>
-          <h3>연속 학습</h3>
-          <p>설정한 오늘 미션을 모두 끝낸 날이 streak로 이어집니다.</p>
+        <article className="moon-week-card">
+          <span className="growth-kicker">KEEP YOUR ORBIT</span>
+          <h3>하루씩, 이어지는 빛</h3>
+          <div className="moon-streak-summary"><strong>{analytics.currentStreak}일</strong><span>연속 학습 · 최고 {analytics.longestStreak}일</span></div>
+          <div className="moon-week-strip" aria-label="이번 주 미션 완료 기록">{analytics.currentWeek.map(day => {
+            const future = day.dateKey > analytics.today.dateKey;
+            const label = future ? '예정' : day.qualified ? '미션 완료' : day.hasActivity ? '학습 중' : '미완료';
+            return <div key={day.dateKey} className={`moon-week-day ${day.qualified ? 'earned' : ''} ${future ? 'is-future' : ''} ${day.dateKey === analytics.today.dateKey ? 'is-today' : ''}`} aria-label={`${day.label} ${day.weekday}요일 ${label}`}>
+              <span>{day.weekday}</span><b aria-hidden="true">{day.qualified ? '✓' : day.hasActivity ? '◐' : '·'}</b><small>{day.label}</small>
+            </div>;
+          })}</div>
+          <p className="moon-week-caption">{analytics.today.qualified ? '오늘 미션 완료! 내일도 함께 빛나요.' : analytics.currentStreak > 0 ? '오늘 미션을 끝내면 연속 기록이 이어져요.' : '오늘 미션부터 새로운 연속 기록을 시작해요.'}<br />설정한 하루 미션을 모두 완료하면 1일로 기록돼요.</p>
         </article>
       </div>
 

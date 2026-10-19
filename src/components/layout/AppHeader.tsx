@@ -7,6 +7,8 @@ type Props = {
   hasCurrent: boolean;
   configured: boolean;
   session: Session | null;
+  streak?: number;
+  dailyComplete?: boolean;
   onView: (view: View) => void;
   onSignOut: () => void;
 };
@@ -25,7 +27,7 @@ const getDisplayName = (session: Session | null) => {
 
 const getInitials = (session: Session | null) => getDisplayName(session).slice(0, 2).toUpperCase();
 
-export function AppHeader({ view, hasCurrent, configured, session, onView, onSignOut }: Props) {
+export function AppHeader({ view, hasCurrent, configured, session, streak = 0, dailyComplete = false, onView, onSignOut }: Props) {
   const inDocumentWorkspace = hasCurrent && (view === "study" || view === "words" || view === "quiz");
   const avatarUrl = String(session?.user.user_metadata?.avatar_url ?? "");
 
@@ -54,6 +56,7 @@ export function AppHeader({ view, hasCurrent, configured, session, onView, onSig
       )}
 
       <div className="account-area">
+        {session && <button className={`moon-streak-chip ${dailyComplete ? "done" : ""}`} type="button" onClick={() => onView("profile")} aria-label={`${streak}일 연속 학습, 성장 기록 보기`}><span aria-hidden="true">☾</span>{streak}일</button>}
         {!configured && <span className="demo-badge">DEMO</span>}
         {session ? (
           <button className={`profile-trigger ${view === "profile" ? "active" : ""}`} onClick={() => onView("profile")} aria-label="내 프로필 열기">

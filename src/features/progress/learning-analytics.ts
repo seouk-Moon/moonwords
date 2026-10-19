@@ -66,6 +66,7 @@ export type LearningAnalyticsSnapshot = {
   xpToNextLevel: number;
   currentStreak: number;
   longestStreak: number;
+  totalMissionDays: number;
   moon: { icon: string; name: string; nextLabel: string };
   today: DailyLearningStat;
   currentWeek: DailyLearningStat[];
@@ -386,6 +387,7 @@ export function buildLearningAnalytics({
     xpToNextLevel: levelSize - levelXp,
     currentStreak,
     longestStreak,
+    totalMissionDays: qualifiedKeys.size,
     moon: getMoonPhase(currentStreak),
     today,
     currentWeek,

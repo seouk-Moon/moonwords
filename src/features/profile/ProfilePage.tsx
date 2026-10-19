@@ -10,6 +10,7 @@ type GenderValue = "" | "female" | "male" | "other" | "prefer_not_to_say";
 type Props = {
   session: Session;
   analytics: LearningAnalyticsSnapshot;
+  analyticsReady: boolean;
   goals: DailyGoalSettings;
   onGoalsChange: (next: DailyGoalSettings) => void;
   onBack: () => void;
@@ -43,7 +44,7 @@ const cropAvatar = (file: File, x: number, y: number, zoom: number) => new Promi
   image.src = url;
 });
 
-export function ProfilePage({ session, analytics, goals, onGoalsChange, onBack }: Props) {
+export function ProfilePage({ session, analytics, analyticsReady, goals, onGoalsChange, onBack }: Props) {
   const metadata = session.user.user_metadata ?? {};
   const [fullName, setFullName] = useState(String(metadata.full_name ?? ""));
   const [nickname, setNickname] = useState(String(metadata.nickname ?? ""));
@@ -230,6 +231,8 @@ export function ProfilePage({ session, analytics, goals, onGoalsChange, onBack }
         </div>
       </section>
 
+      <LearningDashboard analytics={analytics} goals={goals} ready={analyticsReady} onGoalsChange={onGoalsChange} />
+
       <section className="profile-card-grid">
         <article className="profile-card profile-identity-card">
           <label className="profile-avatar-picker" aria-label={`${displayName} 프로필 사진 변경`}>
@@ -279,13 +282,6 @@ export function ProfilePage({ session, analytics, goals, onGoalsChange, onBack }
 
       <DeviceSessions key={session.user.id} />
 
-      <section className="profile-analytics-head">
-        <div>
-          <span className="eyebrow">LEARNING RECORD</span>
-          <h2>내 학습 현황</h2>
-        </div>
-      </section>
-      <LearningDashboard analytics={analytics} goals={goals} onGoalsChange={onGoalsChange} />
       {avatarPreview && <>
         <button className="avatar-crop-backdrop" aria-label="사진 편집 닫기" onClick={() => { URL.revokeObjectURL(avatarPreview); setAvatarPreview(""); setAvatarFile(null); }} />
         <section className="avatar-crop-modal" role="dialog" aria-modal="true" aria-label="프로필 사진 위치 선택">
