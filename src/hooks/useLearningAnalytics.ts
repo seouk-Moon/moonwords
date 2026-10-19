@@ -41,6 +41,11 @@ export function useLearningAnalytics({
   }, [session?.user.id, session?.user.user_metadata?.daily_learning_goals]);
 
   useEffect(() => {
+    setEvents([]);
+    setSessions([]);
+    setQuizAttempts([]);
+    setVocabularyCount(0);
+    setCompletedDocumentIds([]);
     if (!supabase || !session) {
       setStorageReady(true);
       return;

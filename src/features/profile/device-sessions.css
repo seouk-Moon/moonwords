@@ -1,0 +1,13 @@
+.device-sessions { margin: 24px 0; padding: 24px; min-width: 0; }
+.device-sessions header { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+.device-sessions h2 { margin: 6px 0 12px; }
+.device-sessions p { line-height: 1.6; }
+.device-sessions ul { list-style: none; padding: 0; margin: 16px 0; }
+.device-sessions li { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 16px 0; border-bottom: 1px solid #e3e7ed; }
+.device-sessions li > div { min-width: 0; overflow-wrap: anywhere; }
+.device-sessions small { display: block; margin-top: 7px; color: #64748b; }
+.device-sessions button { flex-shrink: 0; border: 1px solid #d5dfeb; border-radius: 10px; background: #fff; padding: 9px 12px; color: #334155; cursor: pointer; }
+.device-sessions button:disabled { opacity: .55; cursor: wait; }
+.device-current { display: inline-block; margin-left: 8px; padding: 3px 8px; border-radius: 12px; background: #e5f5ef; color: #176a51; font-size: 12px; }
+.device-sessions-note { color: #64748b; font-size: 13px; }
+@media (max-width: 480px) { .device-sessions { padding: 18px; } .device-sessions li { align-items: flex-start; flex-direction: column; gap: 12px; } }

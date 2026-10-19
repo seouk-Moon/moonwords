@@ -58,26 +58,46 @@ export function useStudyWorkspace(configured: boolean) {
 
   useEffect(() => {
     if (!supabase) return;
-    clearAuthParamsFromUrl();
-    supabase.auth.getSession().then(({ data }) => {
-      setSession(data.session);
-      if (data.session) clearAuthParamsFromUrl();
-      setLoading(false);
-    });
-    const { data } = supabase.auth.onAuthStateChange((_event, next) => {
+    let active = true;
+    let authEvents = 0;
+    let previousUserId: string | null = null;
+    const applySession = (next: Session | null) => {
+      if (!active) return;
+      const nextUserId = next?.user.id ?? null;
+      if (previousUserId !== nextUserId) {
+        // A different account must never briefly see the previous workspace.
+        openRequest.current += 1;
+        setDocuments([]); setFolders([]); setCurrent(null); setWords([]);
+        setProgress(createDemoProgress()); setCollectionSyncNotice("");
+        setView("library");
+      }
+      previousUserId = nextUserId;
       setSession(next);
       if (next) clearAuthParamsFromUrl();
+      setLoading(false);
+    };
+    clearAuthParamsFromUrl();
+    supabase.auth.getSession().then(({ data }) => {
+      if (authEvents === 0) applySession(data.session);
+    }).catch(() => {
+      if (active) setLoading(false);
     });
-    return () => data.subscription.unsubscribe();
+    const { data } = supabase.auth.onAuthStateChange((_event, next) => {
+      authEvents += 1;
+      applySession(next);
+    });
+    return () => { active = false; data.subscription.unsubscribe(); };
   }, []);
 
   useEffect(() => {
     if (!supabase || !session) return;
+    let active = true;
     void Promise.all([
       supabase.from("documents").select("*").order("created_at", { ascending: false }),
       supabase.from("document_folders").select("*").order("created_at", { ascending: true }),
       supabase.from("study_progress").select("document_id,last_studied_at"),
     ]).then(([documentResult, folderResult, progressResult]) => {
+      if (!active) return;
       if (!documentResult.error) {
         const recentByDocument = new Map<string, string>((progressResult.data ?? []).map((row: { document_id: string; last_studied_at: string }) => [row.document_id, row.last_studied_at]));
         setDocuments((documentResult.data as StudyDocument[]).map((document) => normalizeDocumentLevel({ ...document, last_studied_at: recentByDocument.get(document.id) ?? null })));
@@ -85,6 +105,7 @@ export function useStudyWorkspace(configured: boolean) {
       // Older deployments may not have the folder migration yet. Keep the rest of the app usable.
       if (!folderResult.error) setFolders(sortFolders(folderResult.data as DocumentFolder[]));
     });
+    return () => { active = false; };
   }, [session]);
 
   const openDocument = useCallback(async (doc: StudyDocument) => {

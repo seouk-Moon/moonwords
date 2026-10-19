@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { cloudConfigured, configureSupabase, supabase } from "./lib/supabase";
+import { cloudConfigured, configureSupabase } from "./lib/supabase";
 import { AppHeader } from "./components/layout/AppHeader";
 import { MobileBottomNav } from "./components/layout/MobileBottomNav";
 import { SiteFooter, type InfoPage } from "./components/layout/SiteFooter";
@@ -17,6 +17,7 @@ import { SupportChatbot } from "./features/support/SupportChatbot";
 import { LegalPage } from "./features/legal/LegalPage";
 import { ProfilePage } from "./features/profile/ProfilePage";
 import { useStudyWorkspace } from "./hooks/useStudyWorkspace";
+import { signOutThisBrowser, useDeviceSession } from "./hooks/useDeviceSession";
 import { useQuizGeneration } from "./hooks/useQuizGeneration";
 import type { View } from "./app-types";
 import {
@@ -39,6 +40,7 @@ export default function App({ supabaseUrl, supabasePublishableKey }: AppProps = 
   const pdfTransferOpenedRef = useRef(false);
 
   const workspace = useStudyWorkspace(configured);
+  const deviceSession = useDeviceSession(workspace.session);
   const quizGeneration = useQuizGeneration({
     current: workspace.current,
     documents: workspace.documents,
@@ -107,7 +109,7 @@ export default function App({ supabaseUrl, supabasePublishableKey }: AppProps = 
     window.setTimeout(reveal, 40);
   };
 
-  if (workspace.loading) {
+  if (workspace.loading || deviceSession.checking) {
     return <div className="loading-screen"><Logo /><p>내 학습실을 여는 중…</p><SupportChatbot context={{ view: "loading", configured, signedIn: false }} /></div>;
   }
   if (configured && !workspace.session) return (
@@ -126,7 +128,7 @@ export default function App({ supabaseUrl, supabasePublishableKey }: AppProps = 
         configured={configured}
         session={workspace.session}
         onView={navigateToView}
-        onSignOut={() => { void supabase?.auth.signOut({ scope: "local" }); }}
+        onSignOut={() => { void signOutThisBrowser(); }}
       />
 
       {quizGeneration.generationJob && (

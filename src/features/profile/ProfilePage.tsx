@@ -3,6 +3,7 @@ import type { Session } from "@supabase/supabase-js";
 import { clearLocalSupabaseAuthSession, supabase } from "../../lib/supabase";
 import type { DailyGoalSettings, LearningAnalyticsSnapshot } from "../progress/learning-analytics";
 import { LearningDashboard } from "../progress/LearningDashboard";
+import { DeviceSessions } from "./DeviceSessions";
 
 type GenderValue = "" | "female" | "male" | "other" | "prefer_not_to_say";
 
@@ -275,6 +276,8 @@ export function ProfilePage({ session, analytics, goals, onGoalsChange, onBack }
           </div>
         </article>
       </section>
+
+      <DeviceSessions key={session.user.id} />
 
       <section className="profile-analytics-head">
         <div>
