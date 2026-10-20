@@ -11,6 +11,8 @@ export function MoonGrowthCard({ analytics, goals, ready, onOpenProfile }: {
   onOpenProfile?: () => void;
 }) {
   const [reacting, setReacting] = useState(false);
+  const [reactionCount,setReactionCount] = useState(0);
+  const greetings = ["함께 빛나자! ✦", "또 만나서 좋아! ☾", "네 달빛을 모으고 있어! ✨", "한 번 더, 반짝! ✦"];
   const reactionTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => () => { if (reactionTimer.current) clearTimeout(reactionTimer.current); }, []);
   const progress = dailyMissionProgress(analytics.today, goals);
@@ -19,6 +21,7 @@ export function MoonGrowthCard({ analytics, goals, ready, onOpenProfile }: {
   const sayHello = () => {
     if (reactionTimer.current) clearTimeout(reactionTimer.current);
     setReacting(true);
+    setReactionCount(count=>count+1);
     reactionTimer.current = setTimeout(() => setReacting(false), 1800);
   };
   const heading = pending ? '너의 달을 불러오는 중' : analytics.today.qualified ? '오늘도 한 뼘, 더 빛나게.'
@@ -37,8 +40,8 @@ export function MoonGrowthCard({ analytics, goals, ready, onOpenProfile }: {
     <div className="moon-character-area">
       <div className="moon-orbit" aria-hidden="true"><i /></div>
       <button type="button" className="moon-touch" onClick={sayHello} aria-label="달에게 인사하기">
-        <MoonCharacter light={pending ? .06 : growth.light} joyful={reacting || analytics.today.qualified} />
-        <span className="moon-greeting" role="status">{reacting ? '함께 빛나자! ✦' : ''}</span>
+        <MoonCharacter key={reactionCount} light={pending ? .06 : growth.light} joyful={reacting || analytics.today.qualified} />
+        <span key={reactionCount} className="moon-greeting" role="status">{reacting ? greetings[(reactionCount-1)%greetings.length] : ''}</span>
       </button>
       <div className="moon-phase-label"><span>{growth.stage.name}</span><small>{pending ? '학습 기록 확인 중' : growth.next ? `${growth.next.name}까지 미션 ${growth.next.days - growth.days}일` : '너만의 보름달을 완성했어요'}</small></div>
     </div>

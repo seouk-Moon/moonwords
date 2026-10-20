@@ -1,3 +1,4 @@
+import { loadSourceStars } from "../features/vocabulary/collection-star-sync";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { Session } from "@supabase/supabase-js";
 import { demoDocument } from "../demo";
@@ -47,6 +48,8 @@ export function useStudyWorkspace(configured: boolean) {
   const [documents, setDocuments] = useState<StudyDocument[]>(configured ? [] : [demoDocument]);
   const [folders, setFolders] = useState<DocumentFolder[]>([]);
   const [current, setCurrent] = useState<StudyDocument | null>(configured ? null : demoDocument);
+  const activeDocumentRef=useRef<string|null>(null);
+  activeDocumentRef.current=current?.id??null;
   const [words, setWords] = useState<VocabularyItem[]>([]);
   const [progress, setProgress] = useState<StudyProgress>(createDemoProgress);
   const progressRef = useRef(progress);
@@ -126,19 +129,6 @@ export function useStudyWorkspace(configured: boolean) {
     // Reopening must not read a snapshot from before the last settings save.
     let syncNotice = "";
     await progressWrites.current.catch(() => { syncNotice = "앞선 변경을 저장하지 못했어요. 원본의 별표를 다시 확인해 주세요."; });
-    if (doc.analysis.collection) {
-      const synced = await supabase.rpc("sync_vocabulary_collection_stars", { p_collection_id: doc.id });
-      if (requestId !== openRequest.current) return;
-      if (synced.error) {
-        syncNotice = synced.error.code === "PGRST202" || synced.error.code === "42883"
-          ? "새 별표 단어 자동 추가를 사용하려면 동봉된 Supabase 동기화 SQL을 먼저 실행해 주세요."
-          : "원본의 새 별표 단어를 동기화하지 못했어요. 통합 단어장을 다시 열어 주세요.";
-      } else {
-        const data = synced.data as { document?: StudyDocument; skippedCount?: number } | null;
-        if (data?.document?.id === doc.id) normalizedDocument = normalizeDocumentLevel({ ...data.document, last_studied_at: now });
-        if (data?.skippedCount) syncNotice = "통합 단어장이 5000개에 도달해 일부 별표 단어를 추가하지 못했어요.";
-      }
-    }
     const wordClient = supabase;
     const fetchWords = async () => {
       const data: VocabularyItem[] = [];
@@ -156,7 +146,6 @@ export function useStudyWorkspace(configured: boolean) {
 
     if (requestId !== openRequest.current) return;
     if (wordResult.error || progressResult.error) { onUnavailable?.(); return; }
-    setCollectionSyncNotice(syncNotice);
     const nextWords = (wordResult.data ?? []) as VocabularyItem[];
     let nextProgress: StudyProgress = {
       ...((progressResult.data as StudyProgress | null) ?? {
@@ -169,6 +158,14 @@ export function useStudyWorkspace(configured: boolean) {
       }),
       last_studied_at: now,
     };
+    const beforeSourceMarks = nextProgress;
+    if (doc.analysis.collection) {
+      try { nextProgress = await loadSourceStars(supabase,session.user.id,doc,nextWords,nextProgress); }
+      catch { syncNotice = "원본의 별표를 확인하지 못했어요. 새 단어를 추가하지 않고 저장된 단어장을 열었어요."; }
+      if (requestId !== openRequest.current) return;
+    }
+    const sourceMarksChanged = nextProgress !== beforeSourceMarks;
+    setCollectionSyncNotice(syncNotice);
     const mergedSettings = readStudySettings(nextProgress);
     const cacheRecovery = mergedSettings.setSizeUpdatedAt && !nextProgress.sentence_notes?.__moonwords_study_sets_v1?.includes(mergedSettings.setSizeUpdatedAt);
     if (cacheRecovery) nextProgress = writeStudySettings(nextProgress, mergedSettings);
@@ -180,9 +177,9 @@ export function useStudyWorkspace(configured: boolean) {
     const client = supabase;
     const userId = session.user.id;
     progressWrites.current = progressWrites.current.catch(() => {}).then(async () => {
-      // The server synchronizes members and stars; ordinary opens preserve notes.
-      const result = !progressResult.data || cacheRecovery
-        ? await client.from("study_progress").upsert({ ...nextProgress, user_id: userId }, { onConflict: "user_id,document_id", ignoreDuplicates: !cacheRecovery })
+      // Only persist merged marks/settings; ordinary opens preserve notes.
+      const result = !progressResult.data || cacheRecovery || sourceMarksChanged
+        ? await client.from("study_progress").upsert({ ...nextProgress, user_id: userId }, { onConflict: "user_id,document_id", ignoreDuplicates: !cacheRecovery && !sourceMarksChanged })
         : await client.from("study_progress").update({ last_studied_at: now }).eq("user_id", userId).eq("document_id", doc.id);
       if (result.error) throw new Error(result.error.message);
     });
@@ -564,7 +561,20 @@ export function useStudyWorkspace(configured: boolean) {
     learningAnalytics: learning.snapshot,
     learningEvents: learning.events,
     quizAttempts: learning.quizAttempts,
-    recordGenerationPractice: (question: import("../features/upload/generation-practice").PracticeQuestion, correct: boolean) => learning.recordEvent({eventType:"quiz_answer",documentId:question.documentId,quizMode:question.mode,wordId:question.wordId,correct,xp:0,metadata:{activity:"generation_practice",questionKey:question.questionKey}}),
+    recordGenerationPractice: (question: import("../features/upload/generation-practice").PracticeQuestion, correct: boolean) => {
+      learning.recordEvent({eventType:"quiz_answer",documentId:question.documentId,quizMode:"meaning",wordId:question.wordId,correct,xp:0,metadata:{activity:"generation_practice",questionKey:question.questionKey}});
+      const client=supabase;
+      if(!client||!session||!question.wordId)return;
+      progressWrites.current=progressWrites.current.catch(()=>{}).then(async()=>{
+        const result=await client.rpc("record_generation_word_answer",{p_word_id:question.wordId,p_correct:correct});
+        if(result.error)throw new Error(result.error.message);
+        if(activeDocumentRef.current===question.documentId && result.data?.word && result.data?.progress){
+          setWords(items=>items.map(w=>w.id===question.wordId?result.data.word:w));
+          progressRef.current=result.data.progress;setProgress(result.data.progress);
+        }
+      });
+      void progressWrites.current.catch(()=>{setCollectionSyncNotice("대기 퀴즈의 단어별 정오답 저장에 실패했어요. 동봉된 정오답 기록 SQL을 실행했는지 확인해 주세요.");});
+    },
     cancelPendingOpen: () => { openRequest.current += 1; },
     analyticsReady: learning.analyticsReady,
     dailyGoals: learning.dailyGoals,

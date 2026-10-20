@@ -47,6 +47,7 @@ export function LibraryPage({
 }: Props) {
   const [creatingCollection, setCreatingCollection] = useState(false);
   const selectedFolderId = location.folderId;
+  const choosingFolder = selectedFolderId === "__choose__";
   const setSelectedFolderId = (folderId: string) => onLocationChange({ ...location, folderId });
   const [folderError, setFolderError] = useState("");
   const [deleteCandidate, setDeleteCandidate] = useState<StudyDocument | null>(null);
@@ -140,6 +141,18 @@ export function LibraryPage({
 
       {creatingCollection && <CreateWordbookPanel documents={documents} folders={folders} initialFolderId={defaultUploadFolder}
         onCreate={onCreateCollection} onClose={() => setCreatingCollection(false)} />}
+      {choosingFolder ? <section className="folder-picker" aria-labelledby="folder-picker-title">
+        <h2 id="folder-picker-title">먼저 폴더를 골라 주세요</h2>
+        <p>폴더를 선택하면 그 안의 본문과 통합단어장이 보여요.</p>
+        <div className="folder-picker-grid">
+          {folders.map(folder=><button key={folder.id} onClick={()=>setSelectedFolderId(folder.id)}><span aria-hidden="true">📁</span><strong>{folder.name}</strong><small>{documents.filter(d=>d.folder_id===folder.id).length}개 자료</small></button>)}
+          <button onClick={()=>setSelectedFolderId(UNFILED_FOLDER)}><span aria-hidden="true">📂</span><strong>미분류</strong><small>{documents.filter(d=>!d.folder_id).length}개 자료</small></button>
+          <button onClick={()=>setSelectedFolderId(ALL_FOLDER)}><span aria-hidden="true">📚</span><strong>전체 보기</strong><small>{documents.length}개 자료</small></button>
+        </div>
+        <button className="outline-button" onClick={createFolder}>＋ 새 폴더</button>
+        {folderError && <p role="alert">{folderError}</p>}
+      </section> : <>
+      <button className="outline-button folder-choose-again" onClick={()=>setSelectedFolderId("__choose__")}>폴더 다시 고르기</button>
       <section className="folder-toolbar" aria-label="본문 폴더">
         <div className="folder-list">
           <button className={selectedFolderId === ALL_FOLDER ? "active" : ""} onClick={() => setSelectedFolderId(ALL_FOLDER)}>
@@ -245,6 +258,8 @@ export function LibraryPage({
           </div>
         )}
       </section>)}
+
+      </>}
 
       {deleteCandidate && (
         <div className="document-delete-overlay" role="presentation" onMouseDown={() => { if (!deletingDocument) setDeleteCandidate(null); }}>

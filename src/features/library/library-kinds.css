@@ -18,3 +18,5 @@
   .topbar { gap: 6px; }
   .topbar .brand-button { min-width: 0; }
 }
+
+.folder-picker{margin:20px 0;padding:20px;border:1px solid #dce4ee;border-radius:18px;background:#fff}.folder-picker h2{font-size:1.25rem}.folder-picker p{color:#607087;line-height:1.6}.folder-picker-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(145px,1fr));gap:12px;margin:18px 0}.folder-picker-grid button{display:flex;flex-direction:column;gap:10px;align-items:flex-start;text-align:left;border:1px solid #dce4ee;border-radius:14px;background:#f8fafc;padding:18px;cursor:pointer;min-height:120px;overflow-wrap:anywhere;min-width:0}.folder-picker-grid button:hover,.folder-picker-grid button:focus-visible{background:#eef2ff;border-color:#8c9dc6}.folder-picker-grid button>span{font-size:28px}.folder-picker-grid small{color:#607087}.folder-choose-again{margin-top:20px}@media(max-width:480px){.folder-picker{padding:14px}.folder-picker-grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:9px}.folder-picker-grid button{padding:14px}}

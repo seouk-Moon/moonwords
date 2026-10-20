@@ -1,3 +1,4 @@
+import pdfWorkerUrl from "pdfjs-dist/legacy/build/pdf.worker.min.mjs?url";
 export const MAX_DOCUMENT_TEXT_LENGTH = 120_000;
 
 export type DocumentExtractionProgress = {
@@ -10,6 +11,8 @@ export type DocumentExtractionProgress = {
 export type DocumentExtractionOptions = {
   /** 텍스트 레이어 결과와 관계없이 스캔 OCR로 다시 읽습니다. */
   forceOcr?: boolean;
+  /** A short grammar note is valid when accompanied by a separate original. */
+  allowShortText?: boolean;
   onProgress?: (progress: DocumentExtractionProgress) => void;
 };
 
@@ -92,11 +95,8 @@ const parsePdf = async (
   file: File,
   options: DocumentExtractionOptions,
 ): Promise<ExtractedDocumentContent> => {
-  const [pdfjs, pdfWorker] = await Promise.all([
-    import("pdfjs-dist/legacy/build/pdf.mjs"),
-    import("pdfjs-dist/legacy/build/pdf.worker.min.mjs?url"),
-  ]);
-  pdfjs.GlobalWorkerOptions.workerSrc = pdfWorker.default;
+  const pdfjs = await import("pdfjs-dist/legacy/build/pdf.mjs");
+  pdfjs.GlobalWorkerOptions.workerSrc = pdfWorkerUrl;
   const data = new Uint8Array(await file.arrayBuffer());
   const document = await pdfjs.getDocument({ data }).promise;
   const pages: string[] = [];
@@ -241,7 +241,7 @@ export const extractDocumentFromFile = async (
   }
 
   const cleaned = cleanText(result.text);
-  if (cleaned.length < 40) {
+  if (cleaned.length < (options.allowShortText ? 1 : 40)) {
     throw new Error("본문을 충분히 추출하지 못했습니다. 텍스트를 직접 붙여 넣어 주세요.");
   }
   return {

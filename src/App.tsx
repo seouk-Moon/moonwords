@@ -59,7 +59,7 @@ export default function App({ supabaseUrl, supabasePublishableKey }: AppProps = 
   const workspaceLoading = workspace.loading;
   const workspaceSession = workspace.session;
   const setWorkspaceView = workspace.setView;
-  const navigation = useWorkspaceHistory({
+  useWorkspaceHistory({
     owner: workspace.session?.user.id ?? (configured ? "guest" : "demo"),
     ready: !workspace.loading,
     location: {
@@ -164,8 +164,6 @@ export default function App({ supabaseUrl, supabasePublishableKey }: AppProps = 
         session={workspace.session}
         streak={workspace.learningAnalytics.currentStreak}
         dailyComplete={workspace.learningAnalytics.today.qualified}
-        canGoBack={navigation.canGoBack}
-        onBack={navigation.goBack}
         onView={navigateToView}
         onSignOut={() => { void signOutThisBrowser(); }}
       />
@@ -250,6 +248,8 @@ export default function App({ supabaseUrl, supabasePublishableKey }: AppProps = 
         <Wordbook
           key={workspace.current.id}
           onAdd={workspace.addManualWord}
+          document={workspace.current}
+          onCollectionApplied={workspace.openDocument}
           syncNotice={workspace.collectionSyncNotice}
           words={workspace.words}
           progress={workspace.progress}

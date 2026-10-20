@@ -15,11 +15,13 @@ test('Korean question, five choices, OCR and vision transcription persist withou
  assert.equal(preserveExamSource(source,'Unmodified text input must remain intact.',false).source_exam.rawText,'Unmodified text input must remain intact.');
  const old=preserveExamSource(analysis,raw,true);assert.equal(old.source_exam.rawText,raw);assert.equal(old.source_exam.questionType,'주제');
 });
-test('practice ranks exact question errors, uses document rate explicitly when no item record exists, excludes unstudied and malformed choices',()=>{
- const docs=[doc('recent','2026-10-19',[q('hard'),q('easy'),{...q('invalid'),options:['x','y']}]),doc('older','2026-10-18'),{...doc('never',null)}];
- const event=(key,correct)=>({document_id:'recent',event_type:'quiz_answer',is_correct:correct,metadata:{questionKey:`comprehension:${key}`}});
- const result=buildGenerationPractice(docs,[],[event('hard',false),event('hard',false),event('easy',true)],[{document_id:'older',score:1,question_count:2}]);
- assert.deepEqual(result.map(q=>q.prompt),['hard','older','easy']);assert.equal(result[0].wrongRate,1);assert.equal(result[0].attempts,2);assert.equal(result[1].wrongRate,.5);assert.equal(result[1].attempts,0);assert.equal(result.every(q=>q.options.length===4),true);
+test('waiting quiz uses only a word, four meanings and exact error ranking from the source',()=>{
+ const docs=[doc('recent','2026-10-19',[q('never show comprehension')]),doc('older','2026-10-18'),doc('never',null)];
+ const words=['하나','둘','셋','넷','다섯'].map((meaning,i)=>({id:'w'+i,document_id:i===4?'older':'recent',word:'word'+i,meaning,source_sentence:'Do not show this example.'}));
+ const events=[{document_id:'recent',word_id:'w1',event_type:'quiz_answer',is_correct:false},{document_id:'recent',word_id:'w0',event_type:'quiz_answer',is_correct:true}];
+ const result=buildGenerationPractice(docs,words,events,[]);
+ assert.equal(result[0].wordId,'w1');assert.equal(result[0].wrongRate,1);assert.equal(result[0].title,'recent');assert.ok(result.every(q=>q.mode==='meaning'&&q.prompt===words.find(w=>w.id===q.wordId).word&&q.options.length===4));
+ assert.equal(buildGenerationPractice(docs,[],events,[]).length,0);
 });
 test('word practice requires three distinct distractors, stores correct answer, removes duplicated prompts',()=>{
  const words=['one','two','three','four'].map((meaning,i)=>({id:'w'+i,document_id:'d',word:'word'+i,meaning}));const result=buildGenerationPractice([doc('d','2026-10-19',[])],words,[],[]);

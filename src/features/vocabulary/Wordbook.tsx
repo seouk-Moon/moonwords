@@ -1,16 +1,17 @@
+import { CollectionUpdates } from "./CollectionUpdates";
 import { AddWordForm, type ManualWordDraft } from "./AddWordForm";
 import { useMemo, useState } from "react";
 import { WordSourceLabel } from "./WordSourceLabel";
 import { readWordSources } from "./word-sources";
 import * as XLSX from "xlsx";
-import type { StudyProgress, VocabularyItem } from "../../types";
+import type { StudyDocument, StudyProgress, VocabularyItem } from "../../types";
 import { buildVocabularySets, readStudySettings, toggleStudyMark, wordStudyKey, setVocabularySetSize } from "./study-sets";
 import { readWordQuizRecentResults, summarizeRecentResults } from "./recent-results";
 
 import "./similar-words.css";
 import { findSimilarWords, similarWordPairs, normalizeVocabularyWord } from "./similar-words";
 
-export function Wordbook({ words, progress, onUpdate, onDelete, onStudy, onProgress, onQuiz, onAdd, syncNotice }: { words: VocabularyItem[]; progress: StudyProgress; onUpdate: (item: VocabularyItem) => void; onDelete: (id: string) => void; onStudy: () => void; onProgress: (next: StudyProgress) => void; onQuiz: () => void; onAdd?: (draft: ManualWordDraft) => Promise<void>; syncNotice?: string }) {
+export function Wordbook({ words, progress, onUpdate, onDelete, onStudy, onProgress, onQuiz, onAdd, syncNotice, document, onCollectionApplied }: { words: VocabularyItem[]; progress: StudyProgress; onUpdate: (item: VocabularyItem) => void; onDelete: (id: string) => void; onStudy: () => void; onProgress: (next: StudyProgress) => void; onQuiz: () => void; onAdd?: (draft: ManualWordDraft) => Promise<void>; syncNotice?: string; document?: StudyDocument; onCollectionApplied?: (doc:StudyDocument)=>Promise<void> }) {
   const [query, setQuery] = useState("");
   const [wordFilter, setWordFilter] = useState<"all" | "starred" | "important">("all");
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
@@ -84,6 +85,7 @@ export function Wordbook({ words, progress, onUpdate, onDelete, onStudy, onProgr
   };
 
   return <main className="tool-page">
+    {document?.analysis.collection && onCollectionApplied && <CollectionUpdates document={document} onApplied={onCollectionApplied}/>}
     <div className="tool-heading">
       <div><span className="eyebrow">MY VOCABULARY</span><h1>단어장</h1><p>드래그해 저장한 뜻과 원문을 함께 복습하세요.</p></div>
       <div className="export-controls"><label><span>내보낼 내용</span><select value={exportMode} onChange={(event) => setExportMode(event.target.value as "full" | "compact")}><option value="full">전체 정보</option><option value="compact">단어 + 뜻만</option></select></label><button className="outline-button" onClick={exportExcel} disabled={!words.length}>↓ Excel 내보내기</button></div>

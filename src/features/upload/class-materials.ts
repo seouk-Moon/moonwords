@@ -10,7 +10,7 @@ export async function readClassNotes(file: File, progress: (message: string) => 
     return {text:result.text, images:[result.imageDataUrl]};
   }
   if (!/\.pdf$/i.test(file.name)) {
-    const result = await extractDocumentFromFile(file);
+    const result = await extractDocumentFromFile(file,{allowShortText:true});
     return {text:result.text, images:[] as string[]};
   }
   const pdfjs = await import('pdfjs-dist/legacy/build/pdf.mjs');
