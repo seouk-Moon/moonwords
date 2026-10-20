@@ -15,6 +15,7 @@ export default defineConfig({
         main: projectFile("./index.html"),
         pdfExtractor: projectFile("./pdf-extractor.html"),
         moonDrive: projectFile("./drive.html"),
+        englishExam: projectFile("./exam.html"),
       },
     },
   },
