@@ -148,23 +148,12 @@ export function UploadPanel({
 
   const analyzeWithRetry = async (documentTitle: string, originalText: string, source: PreparedDocument) => {
     if (!supabase) throw new Error("Supabase 연결이 필요합니다.");
-    let lastMessage = "AI 처리 요청에 실패했습니다.";
-    for (let attempt = 0; attempt < 2; attempt += 1) {
-      const response = await supabase.functions.invoke("process-document", {
-        body: { action: "analyze", title: documentTitle, text: originalText, questionCount: 10, imageDataUrl: source.imageDataUrl, compactReading: source.compact === true, notesText:source.notesText, noteImages:source.noteImages, notesOnly:source.notesOnly, classInstructions, classExercises },
-      });
-      if (!response.error) {
-        if (!response.data?.analysis || !Array.isArray(response.data.analysis.sentences) || !response.data.analysis.sentences.length) throw new Error("분석 결과에 읽을 수 있는 영어 본문이 없어요. 원문과 파일 종류를 확인해 주세요.");
-        return response.data;
-      }
-      lastMessage = await getFunctionErrorMessage(response.error);
-      const transient = /503|429|UNAVAILABLE|RESOURCE_EXHAUSTED|high demand/i.test(lastMessage);
-      if (!transient || attempt === 1) throw new Error(lastMessage);
-      const delay = (2 ** attempt) * 1_200 + Math.floor(Math.random() * 600);
-      setStatus(`잠시 혼잡합니다. 자동으로 다시 시도합니다 (${attempt + 2}/2)…`);
-      await new Promise((resolve) => window.setTimeout(resolve, delay));
-    }
-    throw new Error(lastMessage);
+    const response = await supabase.functions.invoke("process-document", {
+      body: { action: "analyze", title: documentTitle, text: originalText, questionCount: 10, imageDataUrl: source.imageDataUrl, compactReading: source.compact === true, notesText:source.notesText, noteImages:source.noteImages, notesOnly:source.notesOnly, classInstructions, classExercises },
+    });
+    if(response.error) throw new Error(await getFunctionErrorMessage(response.error));
+    if (!response.data?.analysis || !Array.isArray(response.data.analysis.sentences) || !response.data.analysis.sentences.length) throw new Error("분석 결과에 읽을 수 있는 영어 본문이 없어요. 원문과 파일 종류를 확인해 주세요.");
+    return response.data;
   };
 
   const finalizeDocument = async (source: PreparedDocument) => {

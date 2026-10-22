@@ -40,8 +40,8 @@ export function MoonGrowthCard({ analytics, goals, ready, onOpenProfile }: {
     <div className="moon-character-area">
       <div className="moon-orbit" aria-hidden="true"><i /></div>
       <button type="button" className="moon-touch" onClick={sayHello} aria-label="달에게 인사하기">
-        <MoonCharacter key={reactionCount} light={pending ? .06 : growth.light} joyful={reacting || analytics.today.qualified} />
-        <span key={reactionCount} className="moon-greeting" role="status">{reacting ? greetings[(reactionCount-1)%greetings.length] : ''}</span>
+        <MoonCharacter key={`moon-${reactionCount}`} light={pending ? .06 : growth.light} joyful={reacting || analytics.today.qualified} />
+        <span key={`greeting-${reactionCount}`} className="moon-greeting" role="status">{reacting ? greetings[(reactionCount-1)%greetings.length] : ''}</span>
       </button>
       <div className="moon-phase-label"><span>{growth.stage.name}</span><small>{pending ? '학습 기록 확인 중' : growth.next ? `${growth.next.name}까지 미션 ${growth.next.days - growth.days}일` : '너만의 보름달을 완성했어요'}</small></div>
     </div>
