@@ -1,3 +1,4 @@
+import { canMoveFolder } from "../features/library/folder-tree";
 import { loadSourceStars } from "../features/vocabulary/collection-star-sync";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { Session } from "@supabase/supabase-js";
@@ -445,7 +446,7 @@ export function useStudyWorkspace(configured: boolean) {
     }
   };
 
-  const createFolder = async (name: string) => {
+  const createFolder = async (name: string, parentId: string | null = null) => {
     const trimmed = name.trim();
     if (!trimmed) throw new Error("폴더 이름을 입력해 주세요.");
     if (folders.some((folder) => folder.name.toLowerCase() === trimmed.toLowerCase())) {
@@ -454,7 +455,7 @@ export function useStudyWorkspace(configured: boolean) {
 
     if (!supabase || !session) {
       const now = new Date().toISOString();
-      const folder: DocumentFolder = { id: uid(), user_id: "demo-user", name: trimmed, sort_order: folders.length, created_at: now, updated_at: now };
+      const folder: DocumentFolder = { id: uid(), user_id: "demo-user", name: trimmed, sort_order: folders.length, parent_id:parentId, created_at: now, updated_at: now };
       setFolders((items) => sortFolders([...items, folder]));
       return folder;
     }
@@ -465,7 +466,7 @@ export function useStudyWorkspace(configured: boolean) {
     ) + 1;
     let result = await supabase
       .from("document_folders")
-      .insert({ user_id: session.user.id, name: trimmed, sort_order: nextSortOrder })
+      .insert({ user_id: session.user.id, name: trimmed, sort_order: nextSortOrder, ...(parentId?{parent_id:parentId}:{}) })
       .select()
       .single();
     // Keep folder creation compatible while an older database is waiting for
@@ -473,7 +474,7 @@ export function useStudyWorkspace(configured: boolean) {
     if (result.error && /sort_order|schema cache/i.test(result.error.message)) {
       result = await supabase
         .from("document_folders")
-        .insert({ user_id: session.user.id, name: trimmed })
+        .insert({ user_id: session.user.id, name: trimmed, ...(parentId?{parent_id:parentId}:{}) })
         .select()
         .single();
     }
@@ -485,32 +486,46 @@ export function useStudyWorkspace(configured: boolean) {
 
   const renameFolder = async (folderId: string, name: string) => {
     const trimmed = name.trim();
-    if (!trimmed) throw new Error("폴더 이름을 입력해 주세요.");
-    setFolders((items) => items.map((folder) => folder.id === folderId ? { ...folder, name: trimmed, updated_at: new Date().toISOString() } : folder));
+    if (!trimmed || trimmed.length > 80) throw new Error("폴더 이름은 1~80자로 입력해 주세요.");
+    if(folders.some(f=>f.id!==folderId&&f.name.toLowerCase()===trimmed.toLowerCase())) throw new Error("같은 이름의 폴더가 이미 있습니다.");
+    const updatedAt=new Date().toISOString();
     if (supabase && session) {
-      const result = await supabase.from("document_folders").update({ name: trimmed, updated_at: new Date().toISOString() }).eq("id", folderId);
+      const result = await supabase.from("document_folders").update({ name: trimmed, updated_at: updatedAt }).eq("id", folderId).select("id").single();
       if (result.error) throw new Error(result.error.message);
     }
+    setFolders(items=>items.map(f=>f.id===folderId?{...f,name:trimmed,updated_at:updatedAt}:f));
   };
 
   const deleteFolder = async (folderId: string) => {
-    setFolders((items) => items.filter((folder) => folder.id !== folderId));
-    setDocuments((items) => items.map((doc) => doc.folder_id === folderId ? { ...doc, folder_id: null } : doc));
-    setCurrent((doc) => doc?.folder_id === folderId ? { ...doc, folder_id: null } : doc);
     if (supabase && session) {
       const result = await supabase.from("document_folders").delete().eq("id", folderId);
       if (result.error) throw new Error(result.error.message);
     }
+    setFolders(items=>items.filter(f=>f.id!==folderId).map(f=>f.parent_id===folderId?{...f,parent_id:null}:f));
+    setDocuments(items=>items.map(doc=>doc.folder_id===folderId?{...doc,folder_id:null}:doc));
+    setCurrent(doc=>doc?.folder_id===folderId?{...doc,folder_id:null}:doc);
   };
 
   const moveDocumentToFolder = async (documentId: string, folderId: string | null) => {
-    const update = (doc: StudyDocument) => doc.id === documentId ? { ...doc, folder_id: folderId } : doc;
-    setDocuments((items) => items.map(update));
-    setCurrent((doc) => doc ? update(doc) : doc);
+    if(!documents.some(doc=>doc.id===documentId))throw new Error("이동할 자료를 찾지 못했어요.");
+    if(folderId&&!folders.some(f=>f.id===folderId))throw new Error("이동할 폴더를 찾지 못했어요.");
     if (supabase && session) {
-      const result = await supabase.from("documents").update({ folder_id: folderId, updated_at: new Date().toISOString() }).eq("id", documentId);
+      const result = await supabase.from("documents").update({ folder_id: folderId, updated_at: new Date().toISOString() }).eq("id", documentId).select("id").single();
       if (result.error) throw new Error(result.error.message.includes("folder_id") ? "폴더를 저장하지 못했습니다. 잠시 뒤 다시 시도해 주세요." : result.error.message);
     }
+    const update=(doc:StudyDocument)=>doc.id===documentId?{...doc,folder_id:folderId}:doc;
+    setDocuments(items=>items.map(update));setCurrent(doc=>doc?update(doc):doc);
+  };
+
+  const nestFolder = async (folderId:string,parentId:string|null) => {
+    if(!folders.some(f=>f.id===folderId))throw new Error("이동할 폴더를 찾지 못했어요.");
+    if(!canMoveFolder(folders,folderId,parentId))throw new Error("자기 자신이나 하위 폴더 안으로 이동할 수 없어요.");
+    const updatedAt=new Date().toISOString();
+    if(supabase&&session){
+      const {error}=await supabase.rpc("move_library_folder",{p_folder_id:folderId,p_parent_id:parentId});
+      if(error)throw new Error(/move_library_folder|parent_id|schema cache/i.test(error.message)?"폴더 이동 설정이 필요해요. 제공된 SQL을 실행한 뒤 다시 시도해 주세요.":error.message);
+    }
+    setFolders(items=>items.map(f=>f.id===folderId?{...f,parent_id:parentId,updated_at:updatedAt}:f));
   };
 
   const moveFolder = async (folderId: string, direction: -1 | 1) => {
@@ -592,6 +607,7 @@ export function useStudyWorkspace(configured: boolean) {
     renameFolder,
     deleteFolder,
     moveDocumentToFolder,
+    nestFolder,
     moveFolder,
   };
 }

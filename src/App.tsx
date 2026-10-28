@@ -197,6 +197,8 @@ export default function App({ supabaseUrl, supabasePublishableKey }: AppProps = 
           onDeleteFolder={workspace.deleteFolder}
           onDeleteDocument={workspace.deleteDocument}
           onMoveDocument={workspace.moveDocumentToFolder}
+          onMoveFolder={workspace.nestFolder}
+          onRenameDocument={workspace.renameDocument}
           location={libraryLocation}
           onLocationChange={setLibraryLocation}
           />

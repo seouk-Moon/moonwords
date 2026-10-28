@@ -14,6 +14,7 @@ export default defineConfig({
       input: {
         main: projectFile("./index.html"),
         pdfExtractor: projectFile("./pdf-extractor.html"),
+        moonOcr: projectFile("./ocr.html"),
         moonDrive: projectFile("./drive.html"),
         englishExam: projectFile("./exam.html"),
       },

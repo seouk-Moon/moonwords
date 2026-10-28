@@ -1,5 +1,4 @@
 import { type ChangeEvent, type DragEvent, useMemo, useRef, useState } from "react";
-import { Logo } from "../components/brand/Logo";
 import {
   extractDocumentFromFile,
   MAX_DOCUMENT_TEXT_LENGTH,
@@ -9,12 +8,13 @@ import { savePendingPdfTransfer } from "./transfer";
 
 const MAX_PDF_FILE_SIZE = 50 * 1024 * 1024;
 const MOONWORDS_HOME_HREF = "./index.html";
+const MOONS_HOME_HREF = "https://seouk-moon.github.io/";
 
 const withoutExtension = (fileName: string) => fileName.replace(/\.pdf$/i, "").trim();
 
 const safeDownloadName = (title: string) => {
   const cleaned = title.replace(/[\\/:*?"<>|]+/g, " ").replace(/\s+/g, " ").trim();
-  return `${cleaned || "moonwords-pdf-text"}.txt`;
+  return `${cleaned || "moon-ocr-text"}.txt`;
 };
 
 const describeProgress = (progress: DocumentExtractionProgress) => {
@@ -83,6 +83,7 @@ export function PdfExtractorApp() {
     try {
       const extracted = await extractDocumentFromFile(selectedFile, {
         forceOcr,
+        allowShortText: true,
         onProgress: (progress) => setBusyMessage(describeProgress(progress)),
       });
       setText(extracted.text);
@@ -93,7 +94,7 @@ export function PdfExtractorApp() {
       } else if (extracted.ocrUsed) {
         setNotice("PDF에 글자 정보가 부족해 화질을 보정한 뒤 영어·한국어 OCR로 추출했습니다. 결과를 한 번 확인해 주세요.");
       } else if (extracted.text.length >= MAX_DOCUMENT_TEXT_LENGTH) {
-        setNotice("추출을 완료했습니다. Moonwords 학습 한도에 맞춰 앞 120,000자까지 표시합니다.");
+        setNotice("추출을 완료했습니다. 추출 한도에 따라 앞 120,000자까지 표시합니다.");
       } else {
         setNotice("텍스트 추출을 완료했습니다. 아래에서 내용을 확인하거나 수정할 수 있습니다.");
       }
@@ -166,14 +167,14 @@ export function PdfExtractorApp() {
   return (
     <div className="pdf-tool-shell">
       <header className="pdf-tool-header">
-        <a className="pdf-tool-brand" href={MOONWORDS_HOME_HREF} aria-label="MoonWords 홈으로 이동"><Logo /></a>
-        <a className="pdf-tool-back" href={MOONWORDS_HOME_HREF}>Moonwords 학습실로 돌아가기 <span aria-hidden="true">→</span></a>
+        <a className="pdf-tool-brand pdf-ocr-brand" href="./ocr.html" aria-label="Moon OCR 홈"><span className="pdf-ocr-mark" aria-hidden="true">☾</span><span><strong>Moon OCR</strong><small>PDF TEXT EXTRACTOR</small></span></a>
+        <a className="pdf-tool-back" href={MOONS_HOME_HREF}>MOONS로 이동 <span aria-hidden="true">→</span></a>
       </header>
 
       <main className="pdf-tool-main">
         <section className="pdf-tool-hero">
           <div>
-            <span className="pdf-tool-eyebrow">FREE PDF TOOL · BROWSER ONLY</span>
+            <span className="pdf-tool-eyebrow">MOONS TOOL · PDF TEXT & OCR</span>
             <h1>PDF에서 영어·한국어 텍스트를<br />깔끔하게 꺼내세요.</h1>
             <p>파일은 서버에 저장하지 않고 이 브라우저 안에서만 읽습니다. 일반 추출이 어려운 흐린 스캔본은 화질을 보정한 뒤 영어·한국어 OCR로 자동 전환합니다.</p>
           </div>
@@ -188,7 +189,7 @@ export function PdfExtractorApp() {
             onDragOver={(event) => event.preventDefault()}
             onDrop={handleDrop}
           >
-            <input ref={fileInputRef} type="file" accept=".pdf,application/pdf" onChange={handleFileInput} />
+            <input ref={fileInputRef} type="file" accept=".pdf,application/pdf" disabled={busy} onChange={handleFileInput} />
             <span className="pdf-tool-upload-icon"><PdfDocumentIcon /></span>
             <strong>{busy ? busyMessage : file ? file.name : "PDF 파일을 놓거나 눌러서 선택"}</strong>
             <small>{file ? `${(file.size / 1024 / 1024).toFixed(2)}MB · 파일을 바꾸려면 이 영역을 누르세요` : "최대 50MB · 스캔 PDF 자동 OCR · 서버 업로드 없음"}</small>
@@ -213,8 +214,8 @@ export function PdfExtractorApp() {
               </div>
 
               <label className="pdf-tool-title-field">
-                <span>본문 제목</span>
-                <input value={title} maxLength={160} onChange={(event) => setTitle(event.target.value)} placeholder="본문 제목을 입력하세요" />
+                <span>문서 제목</span>
+                <input value={title} maxLength={160} onChange={(event) => setTitle(event.target.value)} placeholder="문서 제목을 입력하세요" />
               </label>
 
               <textarea
@@ -240,7 +241,7 @@ export function PdfExtractorApp() {
         <section className="pdf-tool-guide">
           <article><span>01</span><div><b>PDF 선택</b><p>일반 PDF는 바로 읽고 이미지형 문서는 자동으로 OCR을 사용합니다.</p></div></article>
           <article><span>02</span><div><b>내용 확인</b><p>OCR 오탈자를 확인하고 제목과 텍스트를 자유롭게 다듬습니다.</p></div></article>
-          <article><span>03</span><div><b>학습실 연결</b><p>Moonwords로 보내 문장별 번역과 퀴즈를 생성합니다.</p></div></article>
+          <article><span>03</span><div><b>복사·저장</b><p>텍스트를 복사하거나 TXT로 저장하세요. MoonWords로 보낼 수도 있어요.</p></div></article>
         </section>
 
         <aside className="pdf-tool-note">
@@ -250,8 +251,8 @@ export function PdfExtractorApp() {
       </main>
 
       <footer className="pdf-tool-footer">
-        <span>© 2026 MoonWords · PDF Text Extractor</span>
-        <a href={MOONWORDS_HOME_HREF}>영어 학습실 열기</a>
+        <span>© 2026 MOONS · Moon OCR</span>
+        <a href={MOONS_HOME_HREF}>MOONS 홈으로 이동 ↗</a>
       </footer>
     </div>
   );

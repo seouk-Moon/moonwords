@@ -4,6 +4,8 @@ import { formatCefrLevel } from "../../lib/cefr";
 import type { DocumentFolder, StudyDocument } from "../../types";
 import { isCollection, matchesLibraryKind, type LibraryLocation } from "./library-location";
 import "./library-kinds.css";
+import {FolderShelf,ItemActions,useLibraryGestures} from "./LibraryOrganizer";
+import {canMoveFolder,folderLabel,type LibraryItem} from "./folder-tree";
 
 const ALL_FOLDER = "__all__";
 const UNFILED_FOLDER = "__unfiled__";
@@ -15,10 +17,12 @@ type Props = {
   onCreateCollection: (options: CollectionOptions) => Promise<StudyDocument>;
   onUpload: (folderId?: string | null) => void;
   onPhotoUpload?: (folderId?: string | null) => void;
-  onCreateFolder: (name: string) => Promise<DocumentFolder>;
+  onCreateFolder: (name: string, parentId?: string | null) => Promise<DocumentFolder>;
   onRenameFolder: (folderId: string, name: string) => Promise<void>;
   onDeleteFolder: (folderId: string) => Promise<void>;
   onDeleteDocument: (documentId: string) => Promise<void>;
+  onMoveFolder:(folderId:string,parentId:string|null)=>Promise<void>;
+  onRenameDocument:(documentId:string,name:string)=>Promise<void>;
   onMoveDocument: (documentId: string, folderId: string | null) => Promise<void>;
   location: LibraryLocation;
   onLocationChange: (location: LibraryLocation) => void;
@@ -42,9 +46,22 @@ export function LibraryPage({
   onDeleteFolder,
   onDeleteDocument,
   onMoveDocument,
+  onMoveFolder,
+  onRenameDocument,
   location,
   onLocationChange,
 }: Props) {
+  const [actionItem,setActionItem]=useState<LibraryItem|null>(null);
+  const gestures=useLibraryGestures(setActionItem);
+  const moveItem=async(item:LibraryItem,target:string|null)=>{
+    if(item.kind==='folder'){
+      if(!folders.some(f=>f.id===item.id)||!canMoveFolder(folders,item.id,target))throw new Error("자기 자신이나 하위 폴더 안으로 옮길 수 없어요.");
+      await onMoveFolder(item.id,target);
+    }else{
+      if(!documents.some(d=>d.id===item.id))throw new Error("이동할 자료를 찾지 못했어요.");
+      await onMoveDocument(item.id,target);
+    }
+  };
   const [creatingCollection, setCreatingCollection] = useState(false);
   const selectedFolderId = location.folderId;
   const choosingFolder = selectedFolderId === "__choose__";
@@ -80,7 +97,7 @@ export function LibraryPage({
     if (!name?.trim()) return;
     setFolderError("");
     try {
-      const folder = await onCreateFolder(name);
+      const folder = await onCreateFolder(name,selectedFolder?.id??null);
       setSelectedFolderId(folder.id);
     } catch (error) {
       setFolderError(error instanceof Error ? error.message : "폴더를 만들지 못했습니다.");
@@ -101,7 +118,7 @@ export function LibraryPage({
 
   const deleteSelectedFolder = async () => {
     if (!selectedFolder) return;
-    if (!window.confirm(`“${selectedFolder.name}” 폴더를 삭제할까요?\n본문은 삭제되지 않고 미분류로 이동합니다.`)) return;
+    if (!window.confirm(`“${selectedFolder.name}” 폴더를 삭제할까요?\n이 폴더 안의 자료는 미분류로, 하위 폴더는 최상위로 이동하며 내용은 삭제되지 않습니다.`)) return;
     setFolderError("");
     try {
       await onDeleteFolder(selectedFolder.id);
@@ -141,40 +158,13 @@ export function LibraryPage({
 
       {creatingCollection && <CreateWordbookPanel documents={documents} folders={folders} initialFolderId={defaultUploadFolder}
         onCreate={onCreateCollection} onClose={() => setCreatingCollection(false)} />}
-      {choosingFolder ? <section className="folder-picker" aria-labelledby="folder-picker-title">
-        <h2 id="folder-picker-title">먼저 폴더를 골라 주세요</h2>
-        <p>폴더를 선택하면 그 안의 본문과 통합단어장이 보여요.</p>
-        <div className="folder-picker-grid">
-          {folders.map(folder=><button key={folder.id} onClick={()=>setSelectedFolderId(folder.id)}><span aria-hidden="true">📁</span><strong>{folder.name}</strong><small>{documents.filter(d=>d.folder_id===folder.id).length}개 자료</small></button>)}
-          <button onClick={()=>setSelectedFolderId(UNFILED_FOLDER)}><span aria-hidden="true">📂</span><strong>미분류</strong><small>{documents.filter(d=>!d.folder_id).length}개 자료</small></button>
-          <button onClick={()=>setSelectedFolderId(ALL_FOLDER)}><span aria-hidden="true">📚</span><strong>전체 보기</strong><small>{documents.length}개 자료</small></button>
-        </div>
+      <FolderShelf folders={folders} documents={documents} selected={selectedFolderId} onSelect={setSelectedFolderId} onMenu={setActionItem} gestures={gestures} onMove={moveItem} onError={setFolderError}/>
+      <div className="folder-actions">
         <button className="outline-button" onClick={createFolder}>＋ 새 폴더</button>
-        {folderError && <p role="alert">{folderError}</p>}
-      </section> : <>
-      <button className="outline-button folder-choose-again" onClick={()=>setSelectedFolderId("__choose__")}>폴더 다시 고르기</button>
-      <section className="folder-toolbar" aria-label="본문 폴더">
-        <div className="folder-list">
-          <button className={selectedFolderId === ALL_FOLDER ? "active" : ""} onClick={() => setSelectedFolderId(ALL_FOLDER)}>
-            전체 <b>{documents.length}</b>
-          </button>
-          <button className={selectedFolderId === UNFILED_FOLDER ? "active" : ""} onClick={() => setSelectedFolderId(UNFILED_FOLDER)}>
-            미분류 <b>{documents.filter((doc) => !doc.folder_id).length}</b>
-          </button>
-          {folders.map((folder) => (
-            <button key={folder.id} className={selectedFolderId === folder.id ? "active" : ""} onClick={() => setSelectedFolderId(folder.id)}>
-              📁 {folder.name} <b>{documents.filter((doc) => doc.folder_id === folder.id).length}</b>
-            </button>
-          ))}
-        </div>
-        <div className="folder-actions">
-          {selectedFolder && <button onClick={renameSelectedFolder}>이름 변경</button>}
-          {selectedFolder && <button className="danger" onClick={deleteSelectedFolder}>폴더 삭제</button>}
-          <button className="create-folder" onClick={createFolder}>＋ 새 폴더</button>
-        </div>
-      </section>
-      {folderError && <p className="folder-error">{folderError}</p>}
-
+        {selectedFolder&&<><button className="outline-button" onClick={renameSelectedFolder}>이름 변경</button><button className="outline-button" onClick={deleteSelectedFolder}>폴더 삭제</button></>}
+      </div>
+      {folderError&&<p className="folder-error" role="alert">{folderError}</p>}
+      {choosingFolder ? <p className="organize-help">폴더를 선택하면 그 안의 본문과 통합단어장이 보여요.</p> : <>
       <div className="library-kind-tabs" aria-label="학습 자료 종류">
         {([['all', '전체'], ['readings', '본문'], ['collections', '통합단어장']] as const).map(([kind, label]) => <button type="button" key={kind} aria-pressed={location.kind === kind} onClick={() => onLocationChange({ ...location, kind })}>
           {label}<span>{folderDocuments.filter(doc => matchesLibraryKind(doc, kind)).length}</span>
@@ -215,7 +205,7 @@ export function LibraryPage({
 
         <div className="document-grid">
           {group.items.map((doc) => (
-            <article className={`document-card document-card-with-folder ${isCollection(doc) ? "collection-library-card" : "reading-library-card"}`} key={doc.id}>
+            <article className={`document-card document-card-with-folder ${isCollection(doc) ? "collection-library-card" : "reading-library-card"}`} key={doc.id} {...gestures({kind:"document",id:doc.id,name:doc.title})}>
               <button className="document-open-area" onClick={() => onOpen(doc)}>
                 <div className="document-card-topline">
                   <span className="doc-topic">{isCollection(doc) ? "통합단어장" : "본문"} · {doc.analysis.topic || (isCollection(doc) ? "모아 둔 단어" : "English Reading")}</span>
@@ -225,16 +215,17 @@ export function LibraryPage({
                 <p>{doc.analysis.summary}</p>
               </button>
               <footer>
+                <button type="button" data-item-menu className="item-more" aria-label={`${doc.title} 자료 메뉴`} onClick={()=>setActionItem({kind:"document",id:doc.id,name:doc.title})}>⋯</button>
                 <span>{isCollection(doc) ? `${doc.analysis.collection?.wordCount ?? doc.analysis.sentences.length}개 단어 · 통합단어장` : `${doc.analysis.sentences.length} 문장 · ${formatCefrLevel(doc.analysis.level)}`}</span>
                 <label className="folder-select-label" onClick={(event) => event.stopPropagation()}>
                   <span>폴더</span>
                   <select
                     value={doc.folder_id ?? ""}
-                    onChange={(event) => { void onMoveDocument(doc.id, event.target.value || null); }}
+                    onChange={(event) => { void onMoveDocument(doc.id, event.target.value || null).catch(error=>setFolderError(error instanceof Error?error.message:"이동하지 못했어요.")); }}
                     aria-label={`${doc.title} 폴더 이동`}
                   >
                     <option value="">미분류</option>
-                    {folders.map((folder) => <option key={folder.id} value={folder.id}>{folder.name}</option>)}
+                    {folders.map((folder) => <option key={folder.id} value={folder.id}>{folderLabel(folders,folder.id)}</option>)}
                   </select>
                 </label>
                 <button
@@ -261,6 +252,7 @@ export function LibraryPage({
 
       </>}
 
+      {actionItem&&<ItemActions key={`${actionItem.kind}:${actionItem.id}`} item={actionItem} folders={folders} onClose={()=>setActionItem(null)} onMove={moveItem} onRename={async(item,name)=>{if(item.kind==='folder')await onRenameFolder(item.id,name);else await onRenameDocument(item.id,name);}}/>}
       {deleteCandidate && (
         <div className="document-delete-overlay" role="presentation" onMouseDown={() => { if (!deletingDocument) setDeleteCandidate(null); }}>
           <section className="document-delete-dialog" role="alertdialog" aria-modal="true" aria-labelledby="document-delete-title" onMouseDown={(event) => event.stopPropagation()}>

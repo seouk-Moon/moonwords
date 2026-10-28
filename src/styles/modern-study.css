@@ -1310,7 +1310,7 @@ button { font-weight: 650; }
 .site-footer-inner { width: min(1160px, calc(100% - 40px)); margin: 0 auto; display: grid; grid-template-columns: minmax(220px, 1.4fr) 2fr; gap: 70px; padding: 44px 0 34px; }
 .site-footer-brand b { color: #17202a; font-size: 18px; letter-spacing: -.03em; }
 .site-footer-brand p { max-width: 360px; margin: 10px 0 0; font-size: 10px; line-height: 1.8; color: #7b8494; }
-.site-footer nav { display: grid; grid-template-columns: repeat(3, 1fr); gap: 24px; }
+.site-footer nav { display: grid; grid-template-columns: repeat(2, 1fr); gap: 24px; }
 .site-footer nav > div { display: grid; align-content: start; gap: 8px; }
 .site-footer nav strong { margin-bottom: 3px; color: #344054; font-size: 9px; }
 .site-footer nav span, .site-footer nav button, .site-footer nav a { border: 0; padding: 0; background: transparent; color: #7b8494; font: inherit; font-size: 9px; text-align: left; text-decoration: none; cursor: pointer; }

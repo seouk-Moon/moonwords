@@ -1,10 +1,10 @@
-# PDF Text Extractor
+# Moon OCR · PDF Text Extractor
 
-Moonwords 본 앱과 분리된 PDF 텍스트 추출 도구입니다.
+MOONS에서 직접 여는 독립 PDF 텍스트 추출·스캔 OCR 도구입니다. 새 주소는 `ocr.html`이며 예전 `pdf-extractor.html`도 유지합니다. MoonWords 로그인 없이 복사/TXT 저장이 가능합니다.
 
 - `PdfExtractorApp.tsx`: 파일 선택, 추출 결과 편집·복사·다운로드 UI
 - `pdf-extractor.css`: 독립 페이지 전용 스타일
-- `main.tsx`: `pdf-extractor.html` 진입점
+- `main.tsx`: `ocr.html` / `pdf-extractor.html` 공용 진입점
 - `transfer.ts`: 추출 텍스트를 같은 탭의 Moonwords 본문 입력으로 전달하는 임시 저장소
 - `ocr.ts`: 이미지형·저화질 PDF를 페이지 이미지로 보정한 뒤 Tesseract.js 영어·한국어 OCR로 읽는 fallback
 

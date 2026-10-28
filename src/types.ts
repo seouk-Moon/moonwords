@@ -56,6 +56,7 @@ export type DocumentAnalysis = {
 
 export type DocumentFolder = {
   id: string;
+  parent_id?: string | null;
   user_id: string;
   name: string;
   sort_order?: number | null;

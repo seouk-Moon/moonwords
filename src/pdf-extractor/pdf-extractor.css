@@ -187,3 +187,6 @@ button { cursor: pointer; font-weight: 650; }
 }
 
 @media(max-width:680px){.pdf-tool-shell button,.pdf-tool-shell input,.pdf-tool-shell select,.pdf-tool-back{min-height:44px}.pdf-tool-result textarea{font-size:16px}.pdf-tool-back{display:inline-flex;align-items:center}}
+
+/* Standalone MOONS tool identity. */
+.pdf-ocr-brand{display:flex;align-items:center;gap:10px;flex-shrink:0}.pdf-ocr-mark{display:grid;place-items:center;width:38px;height:38px;background:#e7efe2;color:#507450;border-radius:12px;font-size:29px;line-height:1}.pdf-ocr-brand>span:last-child{display:flex;flex-direction:column}.pdf-ocr-brand strong{font-size:17px;letter-spacing:-.5px;font-weight:850}.pdf-ocr-brand small{font-size:8px;letter-spacing:1.1px;color:#88927f;margin-top:3px}.pdf-tool-back:focus-visible,.pdf-tool-brand:focus-visible{outline:3px solid #58734e;outline-offset:5px}
