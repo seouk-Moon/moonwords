@@ -2,6 +2,7 @@ import { useState } from "react";
 import { supabase } from "../../lib/supabase";
 import { Logo } from "../../components/brand/Logo";
 import { isAutoLoginEnabled, setAutoLoginEnabled } from "../../lib/auth-storage";
+import { withAccountDeadline } from "../../lib/account-session";
 
 type GenderValue = "" | "female" | "male" | "other" | "prefer_not_to_say";
 
@@ -18,7 +19,10 @@ export function AuthScreen({brand="MoonWords"}:{brand?:string}={}) {
 
   const submit = async (event: React.FormEvent) => {
     event.preventDefault();
-    if (!supabase) return;
+    if (!supabase) {
+      setMessage("계정 서버 연결 설정을 확인해 주세요.");
+      return;
+    }
     if (mode === "signup" && (!fullName.trim() || !nickname.trim())) {
       setMessage("본명과 닉네임을 모두 입력해 주세요.");
       return;
@@ -26,9 +30,10 @@ export function AuthScreen({brand="MoonWords"}:{brand?:string}={}) {
     setBusy(true);
     setMessage("");
     if (mode === "login") setAutoLoginEnabled(autoLogin);
-    const result = mode === "login"
-      ? await supabase.auth.signInWithPassword({ email, password })
-      : await supabase.auth.signUp({
+    try {
+    const result = await withAccountDeadline(mode === "login"
+      ? supabase.auth.signInWithPassword({ email, password })
+      : supabase.auth.signUp({
           email,
           password,
           options: {
@@ -39,10 +44,14 @@ export function AuthScreen({brand="MoonWords"}:{brand?:string}={}) {
               gender,
             },
           },
-        });
-    setBusy(false);
+        }), 20_000);
     if (result.error) setMessage(result.error.message);
     else if (mode === "signup") setMessage("가입 정보가 저장됐어요. 인증 메일의 링크를 누른 뒤 로그인해 주세요. 프로필 사진은 로그인 후 프로필에서 설정할 수 있어요.");
+    } catch {
+      setMessage("계정 서버 응답을 확인하지 못했어요. 연결 상태를 확인하고 잠시 후 다시 시도해 주세요.");
+    } finally {
+      setBusy(false);
+    }
   };
 
   return (
