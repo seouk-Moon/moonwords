@@ -1,3 +1,4 @@
+import { DocumentExams } from "./DocumentExams";
 import { ClassExercises } from "./ClassExercises";
 import "../upload/generation-practice.css";
 import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
@@ -622,6 +623,7 @@ export function StudyView({ doc, words, progress, onSaveWord, onDeleteWord, onPr
 
   return (
     <main className="study-page">
+      <DocumentExams documentId={doc.id}/>
       <section className="reading-head">
         <span className="eyebrow">{doc.analysis.topic}</span>
         {editingTitle ? (

@@ -22,6 +22,10 @@ Deno.serve(async (req) => {
     auth: { persistSession: false, autoRefreshToken: false },
   });
   try {
+    const token=(req.headers.get("authorization")??"").replace(/^Bearer\s+/i,"");
+    if(!token)return reply({error:"MOONS 계정으로 로그인해 주세요."},401);
+    const {data:{user},error:authError}=await admin.auth.getUser(token);
+    if(authError||!user)return reply({error:"로그인을 다시 확인해 주세요."},401);
     const provided = req.headers.get("x-drive-code") ?? "";
     const [a, b] = await Promise.all([digest(provided.slice(0, 100)), digest(secret)]);
     let different = 0;
@@ -32,6 +36,11 @@ Deno.serve(async (req) => {
     if (!gate.data) return reply({ error: "코드 입력 실패가 많아 잠겼어요. 최대 10분 뒤 다시 시도해 주세요." }, 429);
     if (!valid) return reply({ error: "6자리 코드가 맞지 않아요." }, 403);
 
+    const legacyOwner=Deno.env.get("MOON_DRIVE_LEGACY_OWNER_ID")?.trim();
+    if(legacyOwner===user.id){
+      const restored=await admin.from("moon_drive_files").update({owner_id:user.id}).is("owner_id",null);
+      if(restored.error)return reply({error:"기존 파일의 계정 연결에 실패했어요."},503);
+    }
     const configured = Number(Deno.env.get("MOON_DRIVE_MAX_MB") ?? 200);
     const capacity = Math.floor((Number.isFinite(configured) ? Math.min(500, Math.max(1, configured)) : 200) * 1024 * 1024);
     const isUpload = req.headers.get("content-type")?.includes("multipart/form-data");
@@ -44,7 +53,7 @@ Deno.serve(async (req) => {
         return reply({ error: "비어 있지 않은 20MB 이하 파일을 선택해 주세요." }, 400);
       const name = file.name.replace(/[\/\\\u0000-\u001f\u007f]/g, "_").trim().slice(0, 200) || "file";
       const id = crypto.randomUUID();
-      const reservation = await admin.rpc("moon_drive_reserve", { file_id: id, file_name: name, file_size: file.size, capacity });
+      const reservation = await admin.rpc("moon_drive_reserve_owned", { file_id: id, file_name: name, file_size: file.size, capacity, p_owner_id:user.id });
       if (reservation.error) return reply({ error: reservation.error.message.includes("capacity exceeded")
         ? "드라이브 용량이 가득 찼어요. 파일을 삭제한 뒤 올려 주세요." : reservation.error.message.includes("file count exceeded") ? "최대 500개까지 보관할 수 있어요. 파일을 삭제해 주세요." : "용량을 확보하지 못했어요." }, 409);
       const uploaded = await admin.storage.from(bucket).upload(id, file, { contentType: "application/octet-stream", upsert: false });
@@ -62,13 +71,13 @@ Deno.serve(async (req) => {
     }
     const body = await req.json();
     if (body.action === "list") {
-      const result = await admin.from("moon_drive_files").select("id,name,size,ready,created_at").order("created_at", { ascending: false }).limit(1000);
+      const result = await admin.from("moon_drive_files").select("id,name,size,ready,created_at").eq("owner_id",user.id).order("created_at", { ascending: false }).limit(1000);
       if (result.error) throw result.error;
       return reply({ files: result.data, used: result.data.reduce((n, f) => n + Number(f.size), 0), capacity, maxFile });
     }
     if (!["download", "delete"].includes(body.action) || !/^[0-9a-f-]{36}$/.test(String(body.id)))
       return reply({ error: "잘못된 요청입니다." }, 400);
-    const found = await admin.from("moon_drive_files").select("id,name,ready").eq("id", body.id).maybeSingle();
+    const found = await admin.from("moon_drive_files").select("id,name,ready").eq("id", body.id).eq("owner_id",user.id).maybeSingle();
     if (found.error) throw found.error;
     if (!found.data) return reply({ error: "이미 삭제된 파일이에요." }, 404);
     if (body.action === "download") {
@@ -79,7 +88,7 @@ Deno.serve(async (req) => {
     }
     const removed = await admin.storage.from(bucket).remove([body.id]);
     if (removed.error) throw removed.error;
-    const deleted = await admin.from("moon_drive_files").delete().eq("id", body.id);
+    const deleted = await admin.from("moon_drive_files").delete().eq("id", body.id).eq("owner_id",user.id);
     if (deleted.error) throw deleted.error;
     return reply({ ok: true });
   } catch {

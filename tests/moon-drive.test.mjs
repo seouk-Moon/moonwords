@@ -7,24 +7,23 @@ import { webcrypto } from 'node:crypto';
 
 const raw = readFileSync(new URL('../supabase/functions/moon-drive/index.ts', import.meta.url), 'utf8');
 const code = ts.transpileModule(raw.replace(/^import .*\n/, ''), { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ES2022 } }).outputText;
-function setup({ locked = false, uploadError = false, full = false, deleteError = false } = {}) {
+function setup({ locked = false, uploadError = false, full = false, deleteError = false, legacyOwner = undefined } = {}) {
   let handler;
   const files = new Map(); const calls = [];
   const admin = {
+    auth:{getUser:async token=>({data:{user:token==='owner-a'||token==='owner-b'?{id:token}:null},error:null})},
     rpc: async (name, args) => { calls.push([name, args]);
       if (name === 'moon_drive_check_gate') return { data: !locked, error: null };
       if (full) return { error: { message: 'Drive capacity exceeded' } };
-      files.set(args.file_id, { id: args.file_id, name: args.file_name, size: args.file_size, ready: false });
+      files.set(args.file_id, { id: args.file_id, name: args.file_name, size: args.file_size, owner_id:args.p_owner_id, ready: false });
       return { error: null };
     },
-    from: () => ({
-      select: () => ({
-        order: () => ({ limit: async () => ({ data: [...files.values()], error: null }) }),
-        eq: (_, id) => ({ maybeSingle: async () => ({ data: files.get(id) ?? null, error: null }) }),
-      }),
-      update: (patch) => ({ eq: async (_, id) => { Object.assign(files.get(id), patch); return { error: null }; } }),
-      delete: () => ({ eq: async (_, id) => { files.delete(id); return { error: null }; } }),
-    }),
+    from: () => {
+      let operation='select',patch={},filters=[];
+      const run=()=>{const matching=[...files.values()].filter(f=>filters.every(([k,v])=>f[k]===v));if(operation==='update')matching.forEach(f=>Object.assign(f,patch));if(operation==='delete')matching.forEach(f=>files.delete(f.id));return {data:matching,error:null};};
+      const query={select:()=>query,eq:(key,value)=>{filters.push([key,value]);return query;},is:(key,value)=>{filters.push([key,value]);return query;},order:()=>query,limit:async()=>run(),maybeSingle:async()=>{const r=run();return {...r,data:r.data[0]??null};},then:(resolve,reject)=>Promise.resolve(run()).then(resolve,reject)};
+      return {...query,update:p=>{operation='update';patch=p;return query;},delete:()=>{operation='delete';return query;}};
+    },
     storage: { from: () => ({
       upload: async (id, file, options) => { calls.push(['upload', id, file.size, options]); return { error: uploadError ? {} : null }; },
       remove: async ids => { calls.push(['remove', ids]); return { error: deleteError ? {} : null }; },
@@ -32,10 +31,10 @@ function setup({ locked = false, uploadError = false, full = false, deleteError 
     }) },
   };
   vm.runInNewContext(code, { createClient: () => admin, crypto: webcrypto, Response, File, TextEncoder,
-    Deno: { env: { get: key => ({ MOON_DRIVE_CODE: '042819', SUPABASE_URL: 'https://example.test', SUPABASE_SERVICE_ROLE_KEY: 'test' })[key] }, serve: f => { handler = f; } },
+    Deno: { env: { get: key => ({ MOON_DRIVE_LEGACY_OWNER_ID:legacyOwner, MOON_DRIVE_CODE: '042819', SUPABASE_URL: 'https://example.test', SUPABASE_SERVICE_ROLE_KEY: 'test' })[key] }, serve: f => { handler = f; } },
   });
-  const request = (body, pin = '042819') => handler(new Request('https://example.test/moon-drive', {
-    method: 'POST', headers: { 'x-drive-code': pin, ...(body instanceof FormData ? {} : { 'content-type': 'application/json' }) },
+  const request = (body, pin = '042819', token = 'owner-a') => handler(new Request('https://example.test/moon-drive', {
+    method: 'POST', headers: { 'x-drive-code': pin, authorization: token?'Bearer '+token:'', ...(body instanceof FormData ? {} : { 'content-type': 'application/json' }) },
     body: body instanceof FormData ? body : JSON.stringify(body),
   }));
   return { request, files, calls };
@@ -78,4 +77,18 @@ test('storage delete failure retains record and capacity for retry', async () =>
   const s = setup({ deleteError: true }); await s.request(form());
   const id = [...s.files.keys()][0]; assert.equal((await s.request({ action: 'delete', id })).status, 500);
   assert.equal(s.files.size, 1);
+});
+
+test('account isolation: valid code cannot expose another account file or legacy rows',async()=>{
+ const s=setup();await s.request(form());const id=[...s.files.keys()][0];s.files.set('legacy',{id:'legacy',name:'old',size:1,ready:true,owner_id:null});
+ assert.equal((await s.request({action:'list'},'042819','')).status,401);
+ const other=await (await s.request({action:'list'},'042819','owner-b')).json();assert.equal(other.files.length,0);
+ assert.equal((await s.request({action:'download',id},'042819','owner-b')).status,404);
+ assert.equal((await s.request({action:'delete',id},'042819','owner-b')).status,404);assert.ok(s.files.has(id));
+});
+
+test('legacy shared files are assigned only to the explicitly configured owner',async()=>{
+ const s=setup({legacyOwner:'owner-a'});s.files.set('legacy',{id:'legacy',name:'old',size:1,ready:true,owner_id:null});
+ assert.equal((await (await s.request({action:'list'},'042819','owner-b')).json()).files.length,0);assert.equal(s.files.get('legacy').owner_id,null);
+ assert.equal((await (await s.request({action:'list'})).json()).files.length,1);assert.equal(s.files.get('legacy').owner_id,'owner-a');
 });

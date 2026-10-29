@@ -17,6 +17,7 @@ export default defineConfig({
         moonOcr: projectFile("./ocr.html"),
         moonDrive: projectFile("./drive.html"),
         englishExam: projectFile("./exam.html"),
+        account: projectFile("./account.html"),
       },
     },
   },
