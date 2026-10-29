@@ -13,3 +13,11 @@ test('notes-only enforces stored notes and an exact evidence quote, without pass
  const invented=setup({questions:[{...question,evidence:'Invented grammar note'}]});assert.equal((await invented.call({...input,scope:'notes'})).status,422);
  const full=setup({docs:[{id:'d',title:'본문',original_text:'Learning is important.',analysis:{}}],questions:[{...question,evidence:''}]});assert.equal((await full.call({...input,scope:'passage'})).status,200);
 });
+
+test('the exact exam screen request produces all four question types instead of unsupported action',async()=>{
+ const blank={...question};
+ const writing={...question,kind:'guided_writing',firstLetter:'',definition:'',translation:'학습은 중요하다.',givenWords:['Learning','important'],conditions:['2형식'],answer:'Learning is important.'};
+ const choice={...question,kind:'definition_choice',passage:'Learning is important.',firstLetter:'',definition:'',target:'important',options:['having great value','very old','very cold','very small'],answer:'having great value'};
+ const dialogue={...question,kind:'dialogue',passage:'Learning is important.',firstLetter:'',definition:'',dialogue:'A: How is learning?\nB: ____',conditions:['2형식'],answer:'It is important.'};
+ const c=setup({questions:[blank,writing,choice,dialogue]});const r=await c.call({...input,scope:'notes',counts:{definition_blank:1,guided_writing:1,definition_choice:1,dialogue:1}});assert.equal(r.status,200);const body=await r.json();assert.equal(body.questions.length,4);assert.ok(body.questions.every(q=>q.sourceTitle==='수업 본문'));assert.equal(c.state().calls,1);
+});
