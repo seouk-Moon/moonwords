@@ -33,9 +33,9 @@ export function AppHeader({ view, hasCurrent, configured, session, streak = 0, d
 
   return (
     <header className="topbar">
-      <button className="brand-button" onClick={() => onView("library")} aria-label="MoonWords 내 본문">
+      <a className="brand-button" style={{textDecoration:"none",color:"inherit"}} href="https://seouk-moon.github.io/" aria-label="MOONS 홈">
         <Logo />
-      </button>
+      </a>
 
       {inDocumentWorkspace && (
         <button className="library-return-button" onClick={() => onView("library")}>← 내 본문</button>

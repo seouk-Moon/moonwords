@@ -4,12 +4,14 @@ import type { Session } from '@supabase/supabase-js';
 import { supabase } from '../../lib/supabase';
 import { verifiedAccountSession } from '../../lib/account-session';
 import { AuthScreen } from '../auth/AuthScreen';
+import { AccountSettings } from './AccountSettings';
 import { signOutThisBrowser, useDeviceSession } from '../../hooks/useDeviceSession';
 import '../../../app/globals.css';
 import '../../styles/modern-study.css';
 
 const params = new URLSearchParams(location.search);
 const bridge = params.get('bridge') === '1' && parent !== window;
+const settings = params.get('mode') === 'settings';
 function returnPath() {
   try {
     const url = new URL(params.get('return') || '/', location.origin);
@@ -53,8 +55,9 @@ function Account() {
   useEffect(() => {
     let timer: ReturnType<typeof setTimeout>;
     // Do not call an Auth method inside an SDK auth callback (it holds its lock).
-    const sub = supabase?.auth.onAuthStateChange((event) => {
+    const sub = supabase?.auth.onAuthStateChange((event, next) => {
       if (event === 'INITIAL_SESSION') return;
+      if (event === 'USER_UPDATED' && next) { setSession(next); return; }
       ++requestId.current;
       setReady(false);
       clearTimeout(timer);
@@ -82,10 +85,10 @@ function Account() {
     if (!ready || device.checking) return;
     if (bridge) {
       parent.postMessage({type:'moons-auth', state:error?'error':session?'signed-in':'signed-out', userId:session?.user.id??null, name:session?.user.user_metadata?.nickname||'MOONS 회원', message:error}, location.origin);
-    } else if (session && !error) location.replace(returnPath());
+    } else if (session && !error && !settings) location.replace(returnPath());
   }, [session, ready, error, device.checking, revision]);
 
   if (bridge) return null;
-  return <><header style={{padding:'18px 24px',background:'#fff',borderBottom:'1px solid #ddd',display:'flex',justifyContent:'space-between'}}><b>☾ MOONS · 통합 계정</b><a href="/">메인으로</a></header>{error?<section style={{padding:24}}><p role="alert">{error}</p><button className="primary-button" onClick={() => void verify()}>다시 확인하기</button></section>:!ready||device.checking?<p style={{padding:24}}>계정을 확인하는 중…</p>:!session?<AuthScreen brand="MOONS"/>:<p style={{padding:24}}>MOONS로 이동하는 중…</p>}</>;
+  return <><header className="moons-account-header"><a href="/" aria-label="MOONS 홈">☾ MOONS · 통합 계정</a></header>{error?<section style={{padding:24}}><p role="alert">{error}</p><button className="primary-button" onClick={() => void verify()}>다시 확인하기</button></section>:!ready||device.checking?<p style={{padding:24}}>계정을 확인하는 중…</p>:!session?<AuthScreen/>:settings?<AccountSettings session={session}/>:<p style={{padding:24}}>MOONS로 이동하는 중…</p>}</>;
 }
 createRoot(document.getElementById('root')!).render(<Account/>);

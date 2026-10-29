@@ -76,7 +76,7 @@ export function ProfilePage({ session, analytics, analyticsReady, goals, onGoals
   useEffect(() => () => { if (avatarPreview) URL.revokeObjectURL(avatarPreview); }, [avatarPreview]);
 
   const displayName = useMemo(
-    () => nickname.trim() || fullName.trim() || session.user.email?.split("@")[0] || "MoonWords 사용자",
+    () => nickname.trim() || fullName.trim() || session.user.email?.split("@")[0] || "MOONS 회원",
     [fullName, nickname, session.user.email],
   );
 
@@ -104,7 +104,7 @@ export function ProfilePage({ session, analytics, analyticsReady, goals, onGoals
 
   const signOutEverywhere = async () => {
     if (!supabase || signingOutEverywhere) return;
-    const confirmed = window.confirm("이 기기를 포함해 MoonWords에 로그인된 모든 기기에서 로그아웃할까요?");
+    const confirmed = window.confirm("이 기기를 포함해 MOONS 통합 계정에 로그인된 모든 기기에서 로그아웃할까요?");
     if (!confirmed) return;
 
     setSigningOutEverywhere(true);

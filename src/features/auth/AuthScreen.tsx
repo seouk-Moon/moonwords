@@ -1,12 +1,11 @@
 import { useState } from "react";
 import { supabase } from "../../lib/supabase";
-import { Logo } from "../../components/brand/Logo";
 import { isAutoLoginEnabled, setAutoLoginEnabled } from "../../lib/auth-storage";
 import { withAccountDeadline } from "../../lib/account-session";
 
 type GenderValue = "" | "female" | "male" | "other" | "prefer_not_to_say";
 
-export function AuthScreen({brand="MoonWords"}:{brand?:string}={}) {
+export function AuthScreen() {
   const [mode, setMode] = useState<"login" | "signup">("login");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -46,7 +45,7 @@ export function AuthScreen({brand="MoonWords"}:{brand?:string}={}) {
           },
         }), 20_000);
     if (result.error) setMessage(result.error.message);
-    else if (mode === "signup") setMessage("가입 정보가 저장됐어요. 인증 메일의 링크를 누른 뒤 로그인해 주세요. 프로필 사진은 로그인 후 프로필에서 설정할 수 있어요.");
+    else if (mode === "signup") setMessage("MOONS 통합 계정 가입 정보가 저장됐어요. 인증 메일의 링크를 누른 뒤 로그인해 주세요. 프로필 사진은 로그인 후 프로필에서 설정할 수 있어요.");
     } catch {
       setMessage("계정 서버 응답을 확인하지 못했어요. 연결 상태를 확인하고 잠시 후 다시 시도해 주세요.");
     } finally {
@@ -57,18 +56,14 @@ export function AuthScreen({brand="MoonWords"}:{brand?:string}={}) {
   return (
     <main className="auth-page">
       <section className="auth-intro">
-        {brand==='MOONS'?<><h2>☾ MOONS</h2><p className="eyebrow">ONE ACCOUNT · YOUR OWN SPACE</p><h1>하나의 계정으로,<br/>나만의 도구 모음.</h1><p>기존 MoonWords 계정으로 로그인하세요. 내 본문과 저장한 시험, 학습지를 다른 기기에서도 다시 열 수 있어요.</p><div className="feature-row"><span>통합 로그인</span><span>내 시험 보관함</span><span>계정별 자료</span></div></>:<>        <Logo />
-        <p className="eyebrow">YOUR READING, YOUR WORDS</p>
-        <h1>어떤 영어 본문도<br />나만의 학습지로.</h1>
-        <p>파일이나 텍스트를 올리면 Gemini가 문장별 번역, 단어 뜻, 본문 구조와 퀴즈를 만들고 계정에 안전하게 저장합니다.</p>
-        <div className="feature-row"><span>PDF · DOCX · TXT</span><span>나만의 단어장</span><span>맞춤 퀴즈</span></div></>}
+        <h2>☾ MOONS</h2><p className="eyebrow">ONE ACCOUNT · YOUR OWN SPACE</p><h1>하나의 계정으로,<br/>나만의 도구 모음.</h1><p>기존 MoonWords 회원도 같은 이메일과 비밀번호로 로그인하세요. 내 본문과 저장한 시험, 학습지를 다른 기기에서도 다시 열 수 있어요.</p><div className="feature-row"><span>통합 로그인</span><span>내 시험 보관함</span><span>계정별 자료</span></div>
       </section>
       <form className={`auth-card ${mode === "signup" ? "signup-card" : ""}`} onSubmit={submit}>
         <span className="section-kicker">{mode === "login" ? "WELCOME BACK" : "START LEARNING"}</span>
-        <h2>{mode === "login" ? (brand==="MOONS"?"MOONS 로그인":"내 학습실 열기") : "계정 만들기"}</h2>
+        <h2>{mode === "login" ? "MOONS 로그인" : "MOONS 통합 계정 만들기"}</h2>
         {mode === "signup" && <div className="signup-profile-fields">
           <label>본명<input value={fullName} onChange={(e) => setFullName(e.target.value)} required placeholder="본명" autoComplete="name" /></label>
-          <label>닉네임<input value={nickname} onChange={(e) => setNickname(e.target.value)} required placeholder="MoonWords에서 사용할 이름" /></label>
+          <label>닉네임<input value={nickname} onChange={(e) => setNickname(e.target.value)} required placeholder="모든 서비스에서 사용할 이름" /></label>
           <label>성별
             <select value={gender} onChange={(e) => setGender(e.target.value as GenderValue)}>
               <option value="">선택 안 함</option>
@@ -97,7 +92,7 @@ export function AuthScreen({brand="MoonWords"}:{brand?:string}={}) {
         {message && <p className="form-message">{message}</p>}
         <button className="primary-button" disabled={busy}>{busy ? "처리 중…" : mode === "login" ? "로그인" : "가입하기"}</button>
         <button className="text-button" type="button" onClick={() => { setMode(mode === "login" ? "signup" : "login"); setMessage(""); }}>
-          {mode === "login" ? "처음인가요? 계정 만들기" : "이미 계정이 있나요? 로그인"}
+          {mode === "login" ? "처음인가요? 통합 계정 만들기" : "이미 계정이 있나요? 로그인"}
         </button>
       </form>
     </main>

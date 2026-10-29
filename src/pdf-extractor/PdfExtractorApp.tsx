@@ -167,8 +167,7 @@ export function PdfExtractorApp() {
   return (
     <div className="pdf-tool-shell">
       <header className="pdf-tool-header">
-        <a className="pdf-tool-brand pdf-ocr-brand" href="./ocr.html" aria-label="Moon OCR 홈"><span className="pdf-ocr-mark" aria-hidden="true">☾</span><span><strong>Moon OCR</strong><small>PDF TEXT EXTRACTOR</small></span></a>
-        <a className="pdf-tool-back" href={MOONS_HOME_HREF}>MOONS로 이동 <span aria-hidden="true">→</span></a>
+        <a className="pdf-tool-brand pdf-ocr-brand" href={MOONS_HOME_HREF} aria-label="MOONS 홈"><span className="pdf-ocr-mark" aria-hidden="true">☾</span><span><strong>Moon OCR</strong><small>PDF TEXT EXTRACTOR</small></span></a>
       </header>
 
       <main className="pdf-tool-main">
@@ -252,7 +251,6 @@ export function PdfExtractorApp() {
 
       <footer className="pdf-tool-footer">
         <span>© 2026 MOONS · Moon OCR</span>
-        <a href={MOONS_HOME_HREF}>MOONS 홈으로 이동 ↗</a>
       </footer>
     </div>
   );

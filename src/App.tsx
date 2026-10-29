@@ -6,7 +6,7 @@ import { AppHeader } from "./components/layout/AppHeader";
 import { MobileBottomNav } from "./components/layout/MobileBottomNav";
 import { SiteFooter, type InfoPage } from "./components/layout/SiteFooter";
 import { Logo } from "./components/brand/Logo";
-import { AuthScreen } from "./features/auth/AuthScreen";
+
 import { UploadPanel } from "./features/upload/UploadPanel";
 import { LibraryPage } from "./features/library/LibraryPage";
 import { DEFAULT_LIBRARY_LOCATION } from "./features/library/library-location";
@@ -149,7 +149,7 @@ export default function App({ supabaseUrl, supabasePublishableKey }: AppProps = 
   }
   if (configured && !workspace.session) return (
     <div className="auth-with-footer">
-      {infoPage ? <LegalPage page={infoPage} onBack={() => setInfoPage(null)} /> : <AuthScreen />}
+      {infoPage ? <LegalPage page={infoPage} onBack={() => setInfoPage(null)} /> : <section className="auth-card" style={{margin:"48px auto",maxWidth:480}}><h1>MOONS 통합 계정</h1><p>모든 서비스를 하나의 계정으로 이용하세요.</p><a className="primary-button" href="/account.html?return=%2Fmoonwords%2F">로그인 · 통합 계정 만들기</a></section>}
       <SupportChatbot context={{ view: infoPage ? "legal" : "auth", configured, signedIn: false }} />
       <SiteFooter onOpen={setInfoPage} />
     </div>
